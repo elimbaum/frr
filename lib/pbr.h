@@ -39,21 +39,23 @@ extern "C" {
  * specified.
  */
 struct pbr_filter {
-	uint32_t filter_bm; /* not encoded by zapi
-			     */
-#define PBR_FILTER_SRC_IP		(1 << 0)
-#define PBR_FILTER_DST_IP		(1 << 1)
-#define PBR_FILTER_SRC_PORT		(1 << 2)
-#define PBR_FILTER_DST_PORT		(1 << 3)
-#define PBR_FILTER_FWMARK		(1 << 4)
-#define PBR_FILTER_PROTO		(1 << 5)
-#define PBR_FILTER_SRC_PORT_RANGE	(1 << 6)
-#define PBR_FILTER_DST_PORT_RANGE	(1 << 7)
-#define PBR_FILTER_DSFIELD			(1 << 8)
+	uint32_t filter_bm; /* not encoded by zapi */
+#define PBR_FILTER_SRC_IP	       (1 << 0)
+#define PBR_FILTER_DST_IP	       (1 << 1)
+#define PBR_FILTER_SRC_PORT            (1 << 2)
+#define PBR_FILTER_DST_PORT            (1 << 3)
+#define PBR_FILTER_FWMARK              (1 << 4)
+#define PBR_FILTER_PROTO               (1 << 5)
+#define PBR_FILTER_SRC_PORT_RANGE      (1 << 6)
+#define PBR_FILTER_DST_PORT_RANGE      (1 << 7)
+#define PBR_FILTER_DSFIELD	       (1 << 8)
 
 #define PBR_DSFIELD_DSCP (0xfc) /* Upper 6 bits of DS field: DSCP */
 #define PBR_DSFIELD_ECN (0x03)	/* Lower 2 bits of DS field: BCN */
 
+//#if defined (HAVE_CAAS)
+#define PBR_PCP         (0x07)  /* 3 bit value 0..7 */
+//#endif /* HAVE_CAAS */
 	/* Source and Destination IP address with masks. */
 	struct prefix src_ip;
 	struct prefix dst_ip;
@@ -61,7 +63,16 @@ struct pbr_filter {
 	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
 	uint16_t src_port;
 	uint16_t dst_port;
-
+//#if defined (HAVE_CAAS)
+	uint32_t udp_src_port;
+	uint32_t udp_dst_port;
+	uint32_t tcp_src_port;
+	uint32_t tcp_dst_port;
+	uint32_t proto_id;
+	uint8_t  pcp;
+	uint16_t vlan_id;
+	uint16_t vlan_flags;
+//#endif /* HAVE_CAAS */
 	/* Filter by Differentiated Services field  */
 	uint8_t dsfield; /* DSCP (6 bits) & ECN (2 bits) */
 
@@ -79,6 +90,29 @@ struct pbr_filter {
  * the user criteria may directly point to a table too.
  */
 struct pbr_action {
+//#if defined (HAVE_CAAS)
+	/* Source and Destination IP address with masks. */
+	struct prefix src_ip;
+	struct prefix dst_ip;
+	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
+	uint32_t udp_src_port;
+	uint32_t udp_dst_port;
+	uint32_t tcp_src_port;
+	uint32_t tcp_dst_port;
+
+	/* Filter by Differentiated Services field  */
+	uint8_t  dsfield; /* DSCP (6 bits) & ECN (2 bits) */
+	uint8_t  pcp;
+	uint8_t  queue_id;
+	uint16_t set_vlan_id;
+	uint16_t vlan_flags;
+	/* nexthop actions */
+	uint8_t              nh_family;
+	vrf_id_t             nh_vrf_id;
+	ifindex_t            nh_ifindex;
+	enum nexthop_types_t nh_type;
+	union g_addr         nh_addr;
+//#endif /* HAVE_CAAS */
 	uint32_t table;
 };
 
@@ -90,14 +124,17 @@ struct pbr_action {
  * order amongst rules.
  */
 struct pbr_rule {
+#if !defined(HAVE_CAAS)
 	vrf_id_t vrf_id;
-
+#endif /* HAVE_CAAS*/
 	uint32_t seq;
 	uint32_t priority;
 	uint32_t unique;
 	struct pbr_filter filter;
 	struct pbr_action action;
-
+	vrf_id_t bound_intf_vrf_id;
+	ifindex_t bound_intf_ifindex;
+//#endif /* HAVE_CAAS*/
 	char ifname[INTERFACE_NAMSIZ + 1];
 };
 
@@ -133,8 +170,10 @@ struct pbr_rule {
 #define MATCH_FLOW_LABEL_SET		(1 << 12)
 #define MATCH_FLOW_LABEL_INVERSE_SET	(1 << 13)
 
+#if !defined(HAVE_CAAS)
 extern int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s,
 				struct pbr_rule *zrule);
+#endif /* HAVE_CAAS */
 
 #ifdef __cplusplus
 }

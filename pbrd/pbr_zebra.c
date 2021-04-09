@@ -242,10 +242,10 @@ static int rule_notify_owner(ZAPI_CALLBACK_ARGS)
 		pbrms->installed &= ~installed;
 		break;
 	}
-
-	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %" PRIu64, __func__,
+#if 0
+	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %",  __func__,
 	       zapi_rule_notify_owner2str(note), pbrms->installed);
-
+#endif
 	pbr_map_final_interface_deletion(pbrms->parent, pmi);
 
 	return 0;
@@ -487,18 +487,17 @@ static void pbr_encode_pbr_map_sequence_prefix(struct stream *s,
 					       unsigned char  family)
 {
 	struct prefix any;
-
 	if (!p) {
 		memset(&any, 0, sizeof(any));
 		any.family = family;
 		p = &any;
 	}
-
 	stream_putc(s, p->family);
 	stream_putc(s, p->prefixlen);
 	stream_put(s, &p->u.prefix, prefix_blen(p));
 }
 
+#if !defined(HAVE_CAAS)
 static void
 pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 				const struct pbr_map_sequence *pbrms,
@@ -518,13 +517,16 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
+#endif /* HAVE_CAAS */
 
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)
 {
 	unsigned char family;
-
+#if defined (HAVE_CAAS)
+        char buf[PREFIX2STR_BUFFER];
+#endif
 	family = AF_INET;
 	if (pbrms->family)
 		family = pbrms->family;
@@ -532,33 +534,158 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	stream_putl(s, pbrms->seqno);
 	stream_putl(s, pbrms->ruleno);
 	stream_putl(s, pbrms->unique);
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
-	stream_putw(s, 0);  /* src port */
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
-	stream_putw(s, 0);  /* dst port */
-	stream_putc(s, pbrms->dsfield);
-	stream_putl(s, pbrms->mark);
 
+	/* src and dest IP addresses */
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
+#if defined(HAVE_CAAS)
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_src, family);
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_dst, family);
+
+
+	/* protocol id */
+	stream_putl(s, pbrms->match_proto_id);
+
+	/* udp ports */
+	stream_putl(s, pbrms->match_udp_src_port);
+	stream_putl(s, pbrms->match_udp_dst_port);
+	stream_putl(s, pbrms->action_udp_src_port);
+	stream_putl(s, pbrms->action_udp_dst_port);
+
+	/* tcp ports */
+	stream_putl(s, pbrms->match_tcp_src_port);
+	stream_putl(s, pbrms->match_tcp_dst_port);
+	stream_putl(s, pbrms->action_tcp_src_port);
+	stream_putl(s, pbrms->action_tcp_dst_port);
+#endif /* HAVE_CAAS */
+
+	/* dsfield & ecn */
+	stream_putc(s, pbrms->match_dsfield);
+#if defined(HAVE_CAAS)
+	stream_putc(s, pbrms->action_dsfield);
+#endif /* HAVE_CAAS */
+
+	/* mark */
+	stream_putl(s, pbrms->mark);
+#if defined(HAVE_CAAS)
+	/* pcp */
+	stream_putc(s,pbrms->match_pcp);
+	stream_putc(s,pbrms->action_pcp);
+
+	/* Queue ID */
+	stream_putc(s, pbrms->action_queue_id);
+
+	stream_putw(s, pbrms->match_vlan_id);
+	stream_putw(s, pbrms->set_vlan_id);
+	stream_putw(s, pbrms->match_vlan_flags);
+	stream_putw(s, pbrms->action_vlan_flags);
+#endif /* HAVE_CAAS */
+
+	/* if the user does not use the command "set vrf name |unchanged"
+	 * then pbr_encode_pbr_map_sequence_vrf will not be called
+	 */
+#if !defined(HAVE_CAAS)
+	/* these statement get a table id */
 	if (pbrms->vrf_unchanged || pbrms->vrf_lookup)
 		pbr_encode_pbr_map_sequence_vrf(s, pbrms, ifp);
 	else if (pbrms->nhgrp_name)
 		stream_putl(s, pbr_nht_get_table(pbrms->nhgrp_name));
 	else if (pbrms->nhg)
 		stream_putl(s, pbr_nht_get_table(pbrms->internal_nhg_name));
+#else
+	/* get the nexthop information */
+	stream_putc(s,family);
+	stream_putl(s,pbrms->nh_vrf_id);
+	stream_putl(s,pbrms->nh_ifindex);
+	stream_putl(s,pbrms->nh_type);
+	stream_put(s, &(pbrms->nh_addr.ipv4.s_addr), IPV4_MAX_BYTELEN);
+#endif /* HAVE_CAAS */
+
+	/* this is the interface to which the policy is bound */
+	stream_putl(s, ifp->vrf_id);
+	stream_putl(s, ifp->ifindex);
 	stream_put(s, ifp->name, INTERFACE_NAMSIZ);
+#if defined(HAVE_CAAS)
+	zlog_debug("Pbrd Daemon Sending to Zebra");
+	zlog_debug("===========================================");
+	zlog_debug("pbrms->seq                       = %u ", pbrms->seqno);
+	zlog_debug("pbrms->ruleno                    = %u ", pbrms->ruleno);
+	zlog_debug("pbrms->unique                    = %u ", pbrms->unique);
+
+	zlog_debug("Match Clauses:");
+	zlog_debug("==============");
+	if(pbrms->src){
+		zlog_debug("pbrms->filter.src_ip             = %s ",
+			  prefix2str(pbrms->src, buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->filter.src_ip     = Not configured ");
+	}
+
+	if(pbrms->dst) {
+		zlog_debug("pbrms->filter.dst_ip             = %s ",
+			  prefix2str(pbrms->dst,buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->filter.dst_ip     = Not configured");
+	}
+
+	zlog_debug("pbrms->filter.proto_id           = %u ", pbrms->match_proto_id);
+	zlog_debug("pbrms->filter.udp_src_port       = %u ", pbrms->match_udp_src_port);
+	zlog_debug("pbrms->filter.udp_dst_port       = %u ", pbrms->match_udp_dst_port);
+	zlog_debug("pbrms->filter.tcp_src_port       = %u ", pbrms->match_tcp_src_port);
+	zlog_debug("pbrms->filter.tcp_dst_port       = %u ", pbrms->match_tcp_dst_port);
+	zlog_debug("pbrms->filter.dsfield dscp       = %u ", (pbrms->match_dsfield &0xFC)>> 2);
+	zlog_debug("pbrms->filter.dsfield ecn        = %u ", (pbrms->match_dsfield &0x03));
+	zlog_debug("pbrms->filter.mark               = %u ", pbrms->mark);
+	zlog_debug("pbrms->filter.pcp                = %u ", (pbrms->match_pcp &0x07));
+	zlog_debug("pbrms->filter.vlan_id            = %u ", pbrms->match_vlan_id);
+	zlog_debug("pbrms->filter.vlan_flags         = %u ", pbrms->match_vlan_flags);
+
+	zlog_debug("Set Clauses:");
+	zlog_debug("==============");
+	if(pbrms->action_src){
+		zlog_debug("pbrms->action.src_ip.family      = %s ",
+			  prefix2str(pbrms->action_src, buf, sizeof(buf)));
+	}else{
+		zlog_debug("pbrms->action.src_ip             = Not configured");
+	}
+	if(pbrms->action_dst){
+		zlog_debug("pbrms->action.dst_ip.family      = %s ",
+			  prefix2str(pbrms->action_dst, buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->action.dst_ip             = Not configured");
+	}
+	zlog_debug("pbrms->action.udp_src_port       = %u ", pbrms->action_udp_src_port);
+	zlog_debug("pbrms->action.udp_dst_port       = %u ", pbrms->action_udp_dst_port);
+	zlog_debug("pbrms->action.tcp_src_port       = %u ", pbrms->action_tcp_src_port);
+	zlog_debug("pbrms->action.tcp_dst_port       = %u ", pbrms->action_tcp_dst_port);
+	zlog_debug("pbrms->action.dsfield dscp       = %u ", (pbrms->action_dsfield &0xFC)>> 2);
+	zlog_debug("pbrms->action.dsfield ecn        = %u ", (pbrms->action_dsfield &0x03));
+	zlog_debug("pbrms->action.pcp                = %u ", (pbrms->action_pcp &0x07));
+	zlog_debug("pbrms->action.queue_id           = %u ", pbrms->action_queue_id);
+	zlog_debug("pbrms->action.vlan_id            = %u ", pbrms->set_vlan_id);
+	zlog_debug("pbrms->action.vlan_flags         = %u ", pbrms->action_vlan_flags);
+	zlog_debug("nhop family                      = %u ", family);
+	zlog_debug("pbrms->nh_vrf_id                 = %u ", pbrms->nh_vrf_id);
+	zlog_debug("pbrms->nh_ifindex                = %u ", pbrms->nh_ifindex);
+	zlog_debug("pbrms->nh_type                   = %u ", pbrms->nh_type);
+	zlog_debug("pbrms->nh_ipv4_addr              = %s ",
+		  inet_ntop(AF_INET, &pbrms->nh_addr.ipv4, buf, sizeof(buf)));
+#endif /* HAVE_CAAS */
+	zlog_debug("pbrms->bound_intf_vrf_id         = %u ", ifp->vrf_id );
+	zlog_debug("pbrms->bound_ifname              = %s ", ifp->name);
+	zlog_debug("pbrms->bound_ifindex             = %u ", ifp->ifindex);
+	zlog_debug("\n\n");
 }
 
+#if !defined (HAVE_CAAS)
 bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 		      struct pbr_map_interface *pmi, bool install, bool changed)
 {
 	struct pbr_map *pbrm = pbrms->parent;
 	struct stream *s;
+
 	uint64_t is_installed = (uint64_t)1 << pmi->install_bit;
-
 	is_installed &= pbrms->installed;
-
-	DEBUGD(&pbr_dbg_zebra, "%s: for %s %d(%" PRIu64 ")", __func__,
-	       pbrm->name, install, is_installed);
 
 	/*
 	 * If we are installed and asked to do so again and the config
@@ -594,6 +721,51 @@ bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 	stream_putw_at(s, 0, stream_get_endp(s));
 
 	zclient_send_message(zclient);
-
 	return true;
 }
+#else
+
+bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
+		      struct pbr_map_interface *pmi, bool install, bool changed)
+{
+	struct pbr_map *pbrm = pbrms->parent;
+	struct stream *s;
+	bool is_installed;
+
+	if (pbrms->parent == pmi->pbrm){
+		if(bf_test_index(pbrms->parent->ifi_bitfield,
+				 pmi->install_bit))
+			is_installed = 1;
+	}
+
+	/*
+	 * If we are not installed and asked
+	 * to delete just return.
+	 */
+	if (!install && !is_installed) {
+		return false;
+	}
+	s = zclient->obuf;
+	stream_reset(s);
+
+	zclient_create_header(s,
+			      install ? ZEBRA_RULE_ADD : ZEBRA_RULE_DELETE,
+			      VRF_DEFAULT);
+
+	/*
+	 * We are sending one item at a time at the moment
+	 */
+	stream_putl(s, 1);
+
+	DEBUGD(&pbr_dbg_zebra, "%s: \t%s %s seq %u %d %s %u", __func__,
+	       install ? "Installing" : "Deleting", pbrm->name, pbrms->seqno,
+	       install, pmi->ifp->name, pmi->delete);
+
+	pbr_encode_pbr_map_sequence(s, pbrms, pmi->ifp);
+
+	stream_putw_at(s, 0, stream_get_endp(s));
+
+	zclient_send_message(zclient);
+	return true;
+}
+#endif /* HAVE_CAAS */

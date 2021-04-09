@@ -1,0 +1,59 @@
+/* this file contains a protobuf message used for
+ * policy based routing support. A policy is a set of
+ * match clauses followed by a set of action clauses
+ * followed by an interface to which the policy is to be
+ * bound. If the interface has a name, then the policy
+ * will be bound to that interface. If the interface name
+ * is any, then the policy will be bound to all interfaces
+ */
+
+syntax = "proto3";
+package pbr_policies;
+
+message PolicyRequest{
+uint32 op                      = 1;
+uint32 seq                     = 2;
+uint32 priority                = 3;  
+uint32 unique                  = 4;
+uint32 filter_src_mask         = 5;
+uint32 filter_src_addr         = 6;
+uint32 filter_dst_mask         = 7;
+uint32 filter_dst_addr         = 8;
+uint32 filter_udp_src_port     = 9;
+uint32 filter_udp_dst_port     = 10;
+uint32 filter_tcp_src_port     = 11;
+uint32 filter_tcp_dst_port     = 12;
+uint32 filter_ip_protocol      = 13;
+uint32 filter_dsfield          = 14;
+uint32 filter_pcp              = 15;
+uint32 filter_vlan_id          = 16;
+uint32 filter_vlan_flags       = 17;
+uint32 action_src_mask         = 18;
+uint32 action_src_addr         = 19;
+uint32 action_dst_mask         = 20;
+uint32 action_dst_addr         = 21;
+uint32 action_udp_src_port     = 22;
+uint32 action_udp_dst_port     = 23;
+uint32 action_tcp_src_port     = 24;
+uint32 action_tcp_dst_port     = 25;
+uint32 action_dsfield          = 26;
+uint32 action_pcp              = 27;
+uint32 action_queue_id         = 28;
+uint32 action_set_vlan_id      = 29;
+uint32 action_vlan_flags       = 30;
+uint32 action_nh_family        = 31;
+uint32 action_nh_vrf_id        = 32;
+sint32 action_nh_ifindex       = 33;
+uint32 action_nh_type          = 34;
+uint32 action_nh_addr          = 35;
+fixed64 action_nh_mac          = 36;
+uint32 bound_intf_vrf_id       = 37;
+uint32 bound_intf_ifindex      = 38;
+}
+
+message PolicyReply {
+uint32  status = 1; /* 0 = failed 1 = success */
+}
+service Policy {
+  rpc Activate_Policy_Rule(PolicyRequest) returns (PolicyReply);
+}

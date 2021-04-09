@@ -20,7 +20,6 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
 #include "lib/libfrr.h"
 #include "lib/debug.h"
 #include "lib/frratomic.h"
@@ -37,6 +36,34 @@
 #include "zebra/debug.h"
 #include "zebra/zebra_pbr.h"
 #include "printfrr.h"
+
+#if defined(HAVE_CAAS)
+#include "grpc/zebra_grpc_provider.h"
+extern int netlink_get_neigh_mac_addr(uint32_t nbr_ip,
+			       vrf_id_t vrf_id,
+			       ifindex_t intf_ifindex,
+			       struct ethaddr *mac);
+
+struct dplane_ctx_rule *rule;
+
+#if defined(HAVE_GRPC)
+static void dplane_grpc_replay_one_rule(struct hash_bucket *b, void *data);
+int dplane_grpc_replay_rules(struct thread *dummy);
+
+void grpc_update_connection_state(struct zebra_dplane_provider *prov,
+				  int res);
+
+void grpc_pbr_rule_copy(struct dplane_ctx_rule *rule,
+			struct zebra_dplane_rule_type *rt);
+
+int grpc_pbr_rule_update(struct zebra_dplane_ctx *ctx,
+			 struct zebra_dplane_provider *prov);
+
+void grpc_update_multi(struct dplane_ctx_q *ctx_list,
+		       struct zebra_dplane_provider *prov);
+#endif /* HAVE_GRPC */
+#endif /* HAVE_CAAS */
+
 
 /* Memory type for context blocks */
 DEFINE_MTYPE_STATIC(ZEBRA, DP_CTX, "Zebra DPlane Ctx")
@@ -230,30 +257,60 @@ struct dplane_neigh_info {
  * Policy based routing rule info for the dataplane
  */
 struct dplane_ctx_rule {
+	uint32_t seq;
 	uint32_t priority;
-
-	/* The route table pointed by this rule */
-	uint32_t table;
-
-	/* Filter criteria */
+	uint32_t unique;
 	uint32_t filter_bm;
-	uint32_t fwmark;
-	uint8_t dsfield;
-	struct prefix src_ip;
-	struct prefix dst_ip;
-	char ifname[INTERFACE_NAMSIZ + 1];
+
+	struct prefix filter_src_ip;
+	struct prefix filter_dst_ip;
+	uint32_t filter_udp_src_port;
+	uint32_t filter_udp_dst_port;
+	uint32_t filter_tcp_src_port;
+	uint32_t filter_tcp_dst_port;
+	uint32_t filter_proto_id;
+	uint8_t  filter_dsfield;
+	uint32_t filter_fwmark;
+	uint8_t  filter_pcp;
+	uint16_t filter_vlan_id;
+	uint16_t filter_vlan_flags;
+
+	struct prefix action_src_ip;
+	struct prefix action_dst_ip;
+
+	uint32_t action_udp_src_port;
+	uint32_t action_udp_dst_port;
+	uint32_t action_tcp_src_port;
+	uint32_t action_tcp_dst_port;
+
+	uint8_t action_dsfield;
+
+	uint8_t action_pcp;
+	uint8_t action_queue_id;
+	uint16_t action_set_vlan_id;
+	uint16_t action_vlan_flags;
+
+	/* actions for nexthop */
+	uint32_t table;
+	uint8_t nh_family;
+	vrf_id_t nh_vrf_id;
+	ifindex_t nh_ifindex;
+	enum nexthop_types_t nh_type;
+	union g_addr         nh_addr;
+	struct ethaddr nh_mac;
+
+	/* policy bound to intf */
+	vrf_id_t bound_intf_vrf_id;
+	ifindex_t bound_intf_ifindex;
+	char bound_ifname[INTERFACE_NAMSIZ + 1];
 };
 
 struct dplane_rule_info {
 	/*
 	 * Originating zclient sock fd, so we can know who to send
-	 * back to.
+	 * back to. in an update, it should be the same sock.
 	 */
 	int sock;
-
-	int unique;
-	int seq;
-
 	struct dplane_ctx_rule new;
 	struct dplane_ctx_rule old;
 };
@@ -293,7 +350,6 @@ struct zebra_dplane_ctx {
 
 	vrf_id_t zd_vrf_id;
 	uint32_t zd_table_id;
-
 	char zd_ifname[INTERFACE_NAMSIZ];
 	ifindex_t zd_ifindex;
 
@@ -328,6 +384,15 @@ struct zebra_dplane_ctx {
 struct zebra_dplane_provider {
 	/* Name */
 	char dp_name[DPLANE_PROVIDER_NAMELEN + 1];
+
+#if defined(HAVE_CAAS)
+	PolicyClient *basebox_connection;
+	struct thread *ptr_to_timer_thread;
+	uint8_t basebox_connection_state;
+#define BASEBOX_CONNECTION_UNKNOWN  1
+#define BASEBOX_CONNECTION_UP       2
+#define BASEBOX_CONNECTION_DOWN     3
+#endif /* HAVE_CAAS*/
 
 	/* Priority, for ordering among providers */
 	uint8_t dp_priority;
@@ -1693,21 +1758,21 @@ const char *dplane_ctx_rule_get_ifname(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.new.ifname;
+	return ctx->u.rule.new.bound_ifname;
 }
 
 int dplane_ctx_rule_get_unique(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.unique;
+	return ctx->u.rule.new.unique;
 }
 
 int dplane_ctx_rule_get_seq(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.seq;
+	return ctx->u.rule.new.seq;
 }
 
 uint32_t dplane_ctx_rule_get_priority(const struct zebra_dplane_ctx *ctx)
@@ -1756,28 +1821,28 @@ uint32_t dplane_ctx_rule_get_fwmark(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.new.fwmark;
+	return ctx->u.rule.new.filter_fwmark;
 }
 
 uint32_t dplane_ctx_rule_get_old_fwmark(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.old.fwmark;
+	return ctx->u.rule.old.filter_fwmark;
 }
 
 uint8_t dplane_ctx_rule_get_dsfield(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.new.dsfield;
+	return ctx->u.rule.new.filter_dsfield;
 }
 
 uint8_t dplane_ctx_rule_get_old_dsfield(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.old.dsfield;
+	return ctx->u.rule.old.filter_dsfield;
 }
 
 const struct prefix *
@@ -1785,7 +1850,7 @@ dplane_ctx_rule_get_src_ip(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return &(ctx->u.rule.new.src_ip);
+	return &(ctx->u.rule.new.filter_src_ip);
 }
 
 const struct prefix *
@@ -1793,7 +1858,7 @@ dplane_ctx_rule_get_old_src_ip(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return &(ctx->u.rule.old.src_ip);
+	return &(ctx->u.rule.old.filter_src_ip);
 }
 
 const struct prefix *
@@ -1801,7 +1866,7 @@ dplane_ctx_rule_get_dst_ip(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return &(ctx->u.rule.new.dst_ip);
+	return &(ctx->u.rule.new.filter_dst_ip);
 }
 
 const struct prefix *
@@ -1809,7 +1874,7 @@ dplane_ctx_rule_get_old_dst_ip(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return &(ctx->u.rule.old.dst_ip);
+	return &(ctx->u.rule.old.filter_dst_ip);
 }
 
 uint32_t dplane_ctx_get_br_port_flags(const struct zebra_dplane_ctx *ctx)
@@ -1939,7 +2004,6 @@ static int dplane_ctx_ns_init(struct zebra_dplane_ctx *ctx,
 
 	return AOK;
 }
-
 /*
  * Initialize a context block for a route update from zebra data structs.
  */
@@ -2343,17 +2407,69 @@ static int dplane_ctx_pw_init(struct zebra_dplane_ctx *ctx,
 static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 					struct zebra_pbr_rule *rule)
 {
+#if defined(HAVE_CAAS)
+	struct ethaddr mac;
+#endif
+	dplane_rule->seq      = rule->rule.seq;
 	dplane_rule->priority = rule->rule.priority;
+	dplane_rule->unique   = rule->rule.unique;
+	/* copy filter clause */
+	dplane_rule->filter_bm           = rule->rule.filter.filter_bm;
+	prefix_copy(&(dplane_rule->filter_src_ip), &rule->rule.filter.src_ip);
+	prefix_copy(&(dplane_rule->filter_dst_ip), &rule->rule.filter.dst_ip);
+	dplane_rule->filter_udp_src_port = rule->rule.filter.udp_src_port;
+	dplane_rule->filter_udp_dst_port = rule->rule.filter.udp_dst_port;
+	dplane_rule->filter_tcp_src_port = rule->rule.filter.tcp_src_port;
+	dplane_rule->filter_tcp_dst_port = rule->rule.filter.tcp_dst_port;
+	dplane_rule->filter_proto_id     = rule->rule.filter.proto_id;
+	dplane_rule->filter_dsfield      = rule->rule.filter.dsfield;
+	dplane_rule->filter_fwmark       = rule->rule.filter.fwmark;
+	dplane_rule->filter_pcp          = rule->rule.filter.pcp;
+	dplane_rule->filter_vlan_id      = rule->rule.filter.vlan_id;
+	dplane_rule->filter_vlan_flags   = rule->rule.filter.vlan_flags;
+
+	/* copy action clause */
+	prefix_copy(&(dplane_rule->action_src_ip), &rule->rule.action.src_ip);
+	prefix_copy(&(dplane_rule->action_dst_ip), &rule->rule.action.dst_ip);
+	dplane_rule->action_udp_src_port   = rule->rule.action.udp_src_port;
+	dplane_rule->action_udp_dst_port   = rule->rule.action.udp_dst_port;
+	dplane_rule->action_tcp_src_port   = rule->rule.action.tcp_src_port;
+	dplane_rule->action_tcp_dst_port   = rule->rule.action.tcp_dst_port;
+	dplane_rule->action_dsfield        = rule->rule.action.dsfield;
+	dplane_rule->action_pcp            = rule->rule.action.pcp;
+	dplane_rule->action_queue_id       = rule->rule.action.queue_id;
+	dplane_rule->action_set_vlan_id    = rule->rule.action.set_vlan_id;
+	dplane_rule->action_vlan_flags     = rule->rule.action.vlan_flags;
+
 	dplane_rule->table = rule->rule.action.table;
-
-	dplane_rule->filter_bm = rule->rule.filter.filter_bm;
-	dplane_rule->fwmark = rule->rule.filter.fwmark;
-	dplane_rule->dsfield = rule->rule.filter.dsfield;
-	prefix_copy(&(dplane_rule->dst_ip), &rule->rule.filter.dst_ip);
-	prefix_copy(&(dplane_rule->src_ip), &rule->rule.filter.src_ip);
-	strlcpy(dplane_rule->ifname, rule->ifname, INTERFACE_NAMSIZ);
+	dplane_rule->nh_family = rule->rule.action.nh_family;
+	dplane_rule->nh_vrf_id = rule->rule.action.nh_vrf_id;
+	dplane_rule->nh_ifindex = rule->rule.action.nh_ifindex;
+	dplane_rule->nh_type    = rule->rule.action.nh_type;
+	dplane_rule->nh_addr.ipv4.s_addr = rule->rule.action.nh_addr.ipv4.s_addr;
+	dplane_rule->bound_intf_vrf_id  = rule->rule.bound_intf_vrf_id;
+	dplane_rule->bound_intf_ifindex = rule->rule.bound_intf_ifindex;
+	strlcpy(dplane_rule->bound_ifname, rule->rule.ifname, INTERFACE_NAMSIZ);
+#if defined(HAVE_CAAS)
+	if((rule->rule.action.nh_type == NEXTHOP_TYPE_IPV4) ||
+	   (rule->rule.action.nh_type == NEXTHOP_TYPE_IPV4_IFINDEX))
+	{
+		/* get mac address corresponding to neighbor IP address */
+		netlink_get_neigh_mac_addr((uint32_t)rule->rule.action.nh_addr.ipv4.s_addr,
+					   rule->rule.bound_intf_vrf_id,
+					   rule->rule.bound_intf_ifindex,
+					   &mac);
+		if(is_zero_mac(&mac)){
+			/* nexthop is not in the arp table. Sending zeros */
+			/* we may want to queue until it is resolved */
+			memcpy(&(dplane_rule->nh_mac),&mac,ETH_ALEN);
+		}
+		else{
+			memcpy(&(dplane_rule->nh_mac),&mac,ETH_ALEN);
+		}
+	}
+#endif /* HAVE_CAAS */
 }
-
 /**
  * dplane_ctx_rule_init() - Initialize a context block for a PBR rule update.
  *
@@ -2384,14 +2500,16 @@ static int dplane_ctx_rule_init(struct zebra_dplane_ctx *ctx,
 			   op == DPLANE_OP_RULE_UPDATE);
 	ctx->zd_is_update = (op == DPLANE_OP_RULE_UPDATE);
 
+#if 0
 	ctx->zd_vrf_id = new_rule->vrf_id;
 	memcpy(ctx->zd_ifname, new_rule->ifname, sizeof(new_rule->ifname));
-
+#endif
 	ctx->u.rule.sock = new_rule->sock;
-	ctx->u.rule.unique = new_rule->rule.unique;
-	ctx->u.rule.seq = new_rule->rule.seq;
 
+	/*Copy rule in case of add or delete */
 	dplane_ctx_rule_init_single(&ctx->u.rule.new, new_rule);
+
+	/* also copy old rule in case of update */
 	if (op == DPLANE_OP_RULE_UPDATE)
 		dplane_ctx_rule_init_single(&ctx->u.rule.old, old_rule);
 
@@ -3552,14 +3670,15 @@ rule_update_internal(enum dplane_op_e op, struct zebra_pbr_rule *new_rule,
 	struct zebra_dplane_ctx *ctx;
 	int ret;
 
+
 	ctx = dplane_ctx_alloc();
 
 	ret = dplane_ctx_rule_init(ctx, op, new_rule, old_rule);
-	if (ret != AOK)
+	if (ret != AOK){
 		goto done;
+	}
 
 	ret = dplane_update_enqueue(ctx);
-
 done:
 	atomic_fetch_add_explicit(&zdplane_info.dg_rules_in, 1,
 				  memory_order_relaxed);
@@ -3574,6 +3693,7 @@ done:
 
 	return result;
 }
+
 
 enum zebra_dplane_result dplane_pbr_rule_add(struct zebra_pbr_rule *rule)
 {
@@ -3764,6 +3884,10 @@ int dplane_provider_register(const char *name,
 	TAILQ_INIT(&(p->dp_ctx_in_q));
 	TAILQ_INIT(&(p->dp_ctx_out_q));
 
+#if defined(HAVE_CAAS)
+	p->basebox_connection  = NULL;
+	p->basebox_connection_state = BASEBOX_CONNECTION_UNKNOWN;
+#endif
 	p->dp_flags = flags;
 	p->dp_priority = prio;
 	p->dp_fp = fp;
@@ -3951,12 +4075,11 @@ int dplane_provider_work_ready(void)
 	 * enqueue the work, but the event-scheduling machinery may not be
 	 * available.
 	 */
-	if (zdplane_info.dg_run) {
+
+	if (zdplane_info.dg_run)
 		thread_add_event(zdplane_info.dg_master,
 				 dplane_thread_loop, NULL, 0,
 				 &zdplane_info.dg_t_update);
-	}
-
 	return AOK;
 }
 
@@ -3973,7 +4096,6 @@ void dplane_provider_enqueue_to_zebra(struct zebra_dplane_ctx *ctx)
 	TAILQ_INSERT_TAIL(&temp_list, ctx, zd_q_entries);
 	(zdplane_info.dg_results_cb)(&temp_list);
 }
-
 /*
  * Kernel dataplane provider
  */
@@ -4229,6 +4351,599 @@ static int kernel_dplane_process_func(struct zebra_dplane_provider *prov)
 	return 0;
 }
 
+#if defined(HAVE_CAAS) && defined (HAVE_GRPC)
+static void dplane_grpc_replay_one_rule(struct hash_bucket *b, void *data)
+{
+	struct zebra_pbr_rule *rule = b->data;
+	(void)dplane_pbr_rule_add(rule);
+}
+
+int dplane_grpc_replay_rules(struct thread *dummy)
+{
+	if(hashcount(zrouter.rules_hash) != 0)
+	{
+		hash_iterate(zrouter.rules_hash, dplane_grpc_replay_one_rule, NULL);
+	}
+	return 1;
+}
+
+static int dplane_reconnect_basebox(struct thread *my_thread)
+{
+	char target_addr[80];
+	struct zebra_dplane_provider *prov = NULL;
+	PolicyClient *basebox_connection;
+
+	/* if the event fired and the dplane is shutting down, then
+	 * do not execute this event
+	 */
+	prov = THREAD_ARG(my_thread);
+	if(prov){
+		memset(target_addr,'\0',sizeof(target_addr));
+		strcpy(target_addr, "0.0.0.0:5000");
+		basebox_connection = call_connect_to_basebox(target_addr);
+		/* add an event to resend all configured policies.
+		 * if sending fails, then the timer will try again.
+		 * if the sending succeeds, the update_connection function
+		 * will remove timer.
+		 */
+		thread_add_event(zrouter.master, dplane_grpc_replay_rules, NULL, 0, NULL);
+
+		dplane_provider_lock(prov);
+		prov->basebox_connection = basebox_connection;
+		/* will know on sending */
+		prov->basebox_connection_state = BASEBOX_CONNECTION_UNKNOWN;
+		dplane_provider_unlock(prov);
+
+		thread_add_timer_msec(zrouter.master,
+				      dplane_reconnect_basebox,
+				      prov, 1000,
+				      &(prov->ptr_to_timer_thread));
+	}
+	return 1;
+}
+
+static void grpc_dplane_log_detail(struct zebra_dplane_ctx *ctx)
+{
+	char buf[PREFIX_STRLEN];
+
+	switch (dplane_ctx_get_op(ctx)) {
+
+	case DPLANE_OP_ROUTE_INSTALL:
+	case DPLANE_OP_ROUTE_UPDATE:
+	case DPLANE_OP_ROUTE_DELETE:
+		zlog_debug("%u:%pFX gRPC Dplane route update ctx %p op %s",
+			   dplane_ctx_get_vrf(ctx), dplane_ctx_get_dest(ctx),
+			   ctx, dplane_op2str(dplane_ctx_get_op(ctx)));
+		break;
+
+	case DPLANE_OP_NH_INSTALL:
+	case DPLANE_OP_NH_UPDATE:
+	case DPLANE_OP_NH_DELETE:
+		zlog_debug("ID (%u) gRPC Dplane nexthop update ctx %p op %s",
+			   dplane_ctx_get_nhe_id(ctx), ctx,
+			   dplane_op2str(dplane_ctx_get_op(ctx)));
+		break;
+
+	case DPLANE_OP_LSP_INSTALL:
+	case DPLANE_OP_LSP_UPDATE:
+	case DPLANE_OP_LSP_DELETE:
+		break;
+
+	case DPLANE_OP_PW_INSTALL:
+	case DPLANE_OP_PW_UNINSTALL:
+		zlog_debug("gRPC Dplane pw %s: op %s af %d loc: %u rem: %u",
+			   dplane_ctx_get_ifname(ctx),
+			   dplane_op2str(ctx->zd_op), dplane_ctx_get_pw_af(ctx),
+			   dplane_ctx_get_pw_local_label(ctx),
+			   dplane_ctx_get_pw_remote_label(ctx));
+		break;
+
+	case DPLANE_OP_ADDR_INSTALL:
+	case DPLANE_OP_ADDR_UNINSTALL:
+		zlog_debug("gRPC Dplane intf %s, idx %u, addr %pFX",
+			   dplane_op2str(dplane_ctx_get_op(ctx)),
+			   dplane_ctx_get_ifindex(ctx),
+			   dplane_ctx_get_intf_addr(ctx));
+		break;
+
+	case DPLANE_OP_MAC_INSTALL:
+	case DPLANE_OP_MAC_DELETE:
+		prefix_mac2str(dplane_ctx_mac_get_addr(ctx), buf,
+			       sizeof(buf));
+
+		zlog_debug("gRPC Dplane %s, mac %s, ifindex %u",
+			   dplane_op2str(dplane_ctx_get_op(ctx)),
+			   buf, dplane_ctx_get_ifindex(ctx));
+		break;
+
+	case DPLANE_OP_NEIGH_INSTALL:
+	case DPLANE_OP_NEIGH_UPDATE:
+	case DPLANE_OP_NEIGH_DELETE:
+	case DPLANE_OP_VTEP_ADD:
+	case DPLANE_OP_VTEP_DELETE:
+	case DPLANE_OP_NEIGH_DISCOVER:
+		ipaddr2str(dplane_ctx_neigh_get_ipaddr(ctx), buf,
+			   sizeof(buf));
+
+		zlog_debug("gRPC Dplane %s, ip %s, ifindex %u",
+			   dplane_op2str(dplane_ctx_get_op(ctx)),
+			   buf, dplane_ctx_get_ifindex(ctx));
+		break;
+
+	case DPLANE_OP_RULE_ADD:
+	case DPLANE_OP_RULE_DELETE:
+	case DPLANE_OP_RULE_UPDATE:
+		zlog_debug("gRPC Dplane rule update op %s, if %s(%u), ctx %p",
+			   dplane_op2str(dplane_ctx_get_op(ctx)),
+			   dplane_ctx_get_ifname(ctx),
+			   dplane_ctx_get_ifindex(ctx), ctx);
+		break;
+
+	case DPLANE_OP_SYS_ROUTE_ADD:
+	case DPLANE_OP_SYS_ROUTE_DELETE:
+	case DPLANE_OP_ROUTE_NOTIFY:
+	case DPLANE_OP_LSP_NOTIFY:
+	case DPLANE_OP_BR_PORT_UPDATE:
+
+	case DPLANE_OP_NONE:
+		break;
+	}
+}
+
+static void grpc_dplane_handle_result(struct zebra_dplane_ctx *ctx)
+{
+	enum zebra_dplane_result res = dplane_ctx_get_status(ctx);
+
+	switch (dplane_ctx_get_op(ctx)) {
+
+	case DPLANE_OP_ROUTE_INSTALL:
+	case DPLANE_OP_ROUTE_UPDATE:
+	case DPLANE_OP_ROUTE_DELETE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_route_errors,
+						  1, memory_order_relaxed);
+
+		if ((dplane_ctx_get_op(ctx) != DPLANE_OP_ROUTE_DELETE)
+		    && (res == ZEBRA_DPLANE_REQUEST_SUCCESS)) {
+			struct nexthop *nexthop;
+
+			/* Update installed nexthops to signal which have been
+			 * installed.
+			 */
+			for (ALL_NEXTHOPS_PTR(dplane_ctx_get_ng(ctx),
+					      nexthop)) {
+				if (CHECK_FLAG(nexthop->flags,
+					       NEXTHOP_FLAG_RECURSIVE))
+					continue;
+
+				if (CHECK_FLAG(nexthop->flags,
+					       NEXTHOP_FLAG_ACTIVE)) {
+					SET_FLAG(nexthop->flags,
+						 NEXTHOP_FLAG_FIB);
+				}
+			}
+		}
+		break;
+
+	case DPLANE_OP_NH_INSTALL:
+	case DPLANE_OP_NH_UPDATE:
+	case DPLANE_OP_NH_DELETE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(
+				&zdplane_info.dg_nexthop_errors, 1,
+				memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_LSP_INSTALL:
+	case DPLANE_OP_LSP_UPDATE:
+	case DPLANE_OP_LSP_DELETE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_lsp_errors,
+						  1, memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_PW_INSTALL:
+	case DPLANE_OP_PW_UNINSTALL:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_pw_errors, 1,
+						  memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_ADDR_INSTALL:
+	case DPLANE_OP_ADDR_UNINSTALL:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(
+				&zdplane_info.dg_intf_addr_errors, 1,
+				memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_MAC_INSTALL:
+	case DPLANE_OP_MAC_DELETE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_mac_errors,
+						  1, memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_NEIGH_INSTALL:
+	case DPLANE_OP_NEIGH_UPDATE:
+	case DPLANE_OP_NEIGH_DELETE:
+	case DPLANE_OP_VTEP_ADD:
+	case DPLANE_OP_VTEP_DELETE:
+	case DPLANE_OP_NEIGH_DISCOVER:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_neigh_errors,
+						  1, memory_order_relaxed);
+		break;
+
+	case DPLANE_OP_RULE_ADD:
+	case DPLANE_OP_RULE_DELETE:
+	case DPLANE_OP_RULE_UPDATE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_rule_errors,
+						  1, memory_order_relaxed);
+		break;
+
+	/* Ignore 'notifications' - no-op */
+	case DPLANE_OP_SYS_ROUTE_ADD:
+	case DPLANE_OP_SYS_ROUTE_DELETE:
+	case DPLANE_OP_ROUTE_NOTIFY:
+	case DPLANE_OP_LSP_NOTIFY:
+	case DPLANE_OP_BR_PORT_UPDATE:
+		break;
+
+	case DPLANE_OP_NONE:
+		if (res != ZEBRA_DPLANE_REQUEST_SUCCESS)
+			atomic_fetch_add_explicit(&zdplane_info.dg_other_errors,
+						  1, memory_order_relaxed);
+		break;
+	}
+}
+
+static int grpc_dplane_process_func(struct zebra_dplane_provider *prov)
+{
+	struct zebra_dplane_ctx *ctx, *tctx;
+	struct dplane_ctx_q work_list;
+	int counter, limit;
+
+	TAILQ_INIT(&work_list);
+
+	limit = dplane_provider_get_work_limit(prov);
+
+	if (IS_ZEBRA_DEBUG_DPLANE_DETAIL)
+		zlog_debug("gRPC dplane provider '%s': processing",
+			   dplane_provider_get_name(prov));
+
+	for (counter = 0; counter < limit; counter++) {
+		ctx = dplane_provider_dequeue_in_ctx(prov);
+		if (ctx == NULL)
+			break;
+
+		if (IS_ZEBRA_DEBUG_DPLANE_DETAIL)
+			grpc_dplane_log_detail(ctx);
+
+		TAILQ_INSERT_TAIL(&work_list, ctx, zd_q_entries);
+	}
+	/* grpc generated code should go here */
+	grpc_update_multi(&work_list, prov);
+
+	TAILQ_FOREACH_SAFE (ctx, &work_list, zd_q_entries, tctx) {
+		grpc_dplane_handle_result(ctx);
+
+		TAILQ_REMOVE(&work_list, ctx, zd_q_entries);
+		dplane_provider_enqueue_out_ctx(prov, ctx);
+	}
+
+	/* Ensure that we'll run the work loop again if there's still
+	 * more work to do.
+	 */
+	if (counter >= limit) {
+		if (IS_ZEBRA_DEBUG_DPLANE_DETAIL)
+			zlog_debug("gRPC dplane provider '%s' reached max updates %d",
+				   dplane_provider_get_name(prov), counter);
+
+		atomic_fetch_add_explicit(&zdplane_info.dg_update_yields,
+					  1, memory_order_relaxed);
+
+		dplane_provider_work_ready();
+	}
+
+	return 0;
+}
+void
+grpc_update_connection_state(struct zebra_dplane_provider *prov, int res)
+{
+	uint8_t new_state, old_state, cancel_flag = 0;
+	old_state = prov->basebox_connection_state;
+
+	switch(old_state){
+	case BASEBOX_CONNECTION_UNKNOWN:
+		if (res == 0)
+			new_state = BASEBOX_CONNECTION_UP;
+		else
+			new_state = BASEBOX_CONNECTION_DOWN;
+		break;
+	case BASEBOX_CONNECTION_UP:
+		if (res == 0)
+			new_state = BASEBOX_CONNECTION_UP;
+		else
+			new_state = BASEBOX_CONNECTION_DOWN;
+		break;
+	case BASEBOX_CONNECTION_DOWN:
+		if (res == 0){
+			new_state = BASEBOX_CONNECTION_UP;
+		}
+		else
+			new_state = BASEBOX_CONNECTION_DOWN;
+		break;
+	default:
+		new_state = BASEBOX_CONNECTION_UNKNOWN;
+		break;
+	}
+	if((new_state == BASEBOX_CONNECTION_DOWN) ||
+	   (new_state == BASEBOX_CONNECTION_UNKNOWN)){
+		/* schedule a connection attempt every 1 sec
+		 * if not already scheduled
+		 */
+		if(!prov->ptr_to_timer_thread){
+			thread_add_timer_msec(zrouter.master,
+					      dplane_reconnect_basebox,
+					      prov, 1000,
+					      &(prov->ptr_to_timer_thread));
+		}
+	}
+	else if(new_state == BASEBOX_CONNECTION_UP){
+		if(prov->ptr_to_timer_thread){
+			thread_cancel(&(prov->ptr_to_timer_thread));
+			cancel_flag = 1;
+		}
+	}
+	dplane_provider_lock(prov);
+	if(cancel_flag)
+		prov->ptr_to_timer_thread = NULL;
+	prov->basebox_connection_state = new_state;
+	dplane_provider_unlock(prov);
+}
+
+
+void grpc_pbr_rule_copy(struct dplane_ctx_rule *rule,
+			struct zebra_dplane_rule_type *rt)
+{
+	struct in_addr ip_mask;
+        char buf[PREFIX2STR_BUFFER];
+
+	rt->seq      = rule->seq;
+	rt->priority = rule->priority;
+	rt->unique   = rule->unique;
+
+	/* convert prefixlen to mask */
+	masklen2ip((const int) rule->filter_src_ip.prefixlen, &ip_mask);
+	rt->filter_src_mask = ip_mask.s_addr;
+	memcpy(&rt->filter_src_addr, &rule->filter_src_ip.u.prefix4,4);
+
+	masklen2ip((const int) rule->filter_dst_ip.prefixlen, &ip_mask);
+	rt->filter_dst_mask = ip_mask.s_addr;
+	memcpy(&rt->filter_dst_addr, &rule->filter_dst_ip.u.prefix4,4);
+
+	rt->filter_udp_src_port = rule->filter_udp_src_port;
+	rt->filter_udp_dst_port = rule->filter_udp_dst_port;
+	rt->filter_tcp_src_port = rule->filter_tcp_src_port;
+	rt->filter_tcp_dst_port = rule->filter_tcp_dst_port;
+	rt->filter_ip_protocol  = rule->filter_proto_id;
+	rt->filter_dsfield      = rule->filter_dsfield;
+	rt->filter_pcp          = rule->filter_pcp;
+	rt->filter_vlan_id      = rule->filter_vlan_id;
+	rt->filter_vlan_flags   = rule->filter_vlan_flags;
+
+	masklen2ip((const int) rule->action_src_ip.prefixlen, &ip_mask);
+	rt->action_src_mask = ip_mask.s_addr;
+	memcpy(&rt->action_src_addr, &rule->action_src_ip.u.prefix4,4);
+
+	masklen2ip((const int) rule->action_dst_ip.prefixlen, &ip_mask);
+	rt->action_dst_mask = ip_mask.s_addr;
+	memcpy(&rt->action_dst_addr, &rule->action_dst_ip.u.prefix4,4);
+
+	rt->action_udp_src_port = rule->action_udp_src_port;
+	rt->action_udp_dst_port = rule->action_udp_dst_port;
+	rt->action_tcp_src_port = rule->action_tcp_src_port;
+	rt->action_tcp_dst_port = rule->action_tcp_dst_port;
+	rt->action_dsfield      = rule->action_dsfield;
+	rt->action_pcp          = rule->action_pcp;
+	rt->action_queue_id     = rule->action_queue_id;
+	rt->action_set_vlan_id  = rule->action_set_vlan_id;
+	rt->action_vlan_flags   = rule->action_vlan_flags;
+	rt->action_nh_family    = rule->nh_family;
+	rt->action_nh_vrf_id    = rule->nh_vrf_id;
+	rt->action_nh_ifindex   = rule->nh_ifindex;
+	rt->action_nh_type      = rule->nh_type;
+	memcpy(&rt->action_nh_addr, &rule->nh_addr,4);
+	//memcpy(&(rt->action_nh_mac),&rule->nh_mac,ETH_ALEN);
+	rt->action_nh_mac =  (unsigned long long) rule->nh_mac.octet[5];
+	rt->action_nh_mac += (unsigned long long) rule->nh_mac.octet[4]<<8;
+	rt->action_nh_mac += (unsigned long long) rule->nh_mac.octet[3]<<16;
+	rt->action_nh_mac += (unsigned long long) rule->nh_mac.octet[2]<<24;
+	rt->action_nh_mac += (unsigned long long) rule->nh_mac.octet[1]<<32;
+	rt->action_nh_mac += (unsigned long long) rule->nh_mac.octet[0]<<40;
+	rt->bound_intf_vrf_id   = rule->bound_intf_vrf_id;
+	rt->bound_intf_ifindex  = rule->bound_intf_ifindex;
+
+	zlog_debug("rt operation           = %u ", rt->op);
+	zlog_debug("rt seq                 = %u ", rt->seq);
+	zlog_debug("rt priority            = %u ", rt->priority);
+	zlog_debug("rt unique              = %u ", rt->unique);
+	zlog_debug("rt filter src mask     = %s ",
+		  inet_ntop(AF_INET, &rt->filter_src_mask, buf, sizeof(buf)));
+	zlog_debug("rt filter src addr     = %s ",
+		  inet_ntop(AF_INET, &rt->filter_src_addr, buf, sizeof(buf)));
+	zlog_debug("rt filter dst mask     = %s ",
+		  inet_ntop(AF_INET, &rt->filter_dst_mask, buf, sizeof(buf)));
+	zlog_debug("rt filter dst addr     = %s ",
+		  inet_ntop(AF_INET, &rt->filter_dst_addr, buf, sizeof(buf)));
+	zlog_debug("rt filter src port     = %u ", rt->filter_udp_src_port);
+	zlog_debug("rt filter dst port     = %u ", rt->filter_udp_dst_port);
+	zlog_debug("rt filter tcp src port = %u ", rt->filter_tcp_src_port);
+	zlog_debug("rt filter dst port     = %u ", rt->filter_tcp_dst_port);
+	zlog_debug("rt filter protocol id  = %u ", rt->filter_ip_protocol);
+	zlog_debug("rt filter dsfield      = %u ", (rt->filter_dsfield & 0xFC)>> 2);
+	zlog_debug("rt filter ecn          = %u ", rt->filter_dsfield & 0x03);
+	zlog_debug("rt filter pcp          = %u ", rt->filter_pcp & 0x07);
+	zlog_debug("rt filter vlan id      = %u ", rt->filter_vlan_id);
+	zlog_debug("rt filter vlan flags   = %u ", rt->filter_vlan_flags);
+	zlog_debug("rt action src mask     = %s ",
+		  inet_ntop(AF_INET, &rt->action_src_mask, buf, sizeof(buf)));
+	zlog_debug("rt action src addr     = %s ",
+		  inet_ntop(AF_INET, &rt->action_src_addr, buf, sizeof(buf)));
+	zlog_debug("rt action dst mask     = %s ",
+		  inet_ntop(AF_INET, &rt->action_dst_mask, buf, sizeof(buf)));
+	zlog_debug("rt action dst addr     = %s ",
+		  inet_ntop(AF_INET, &rt->action_dst_addr, buf, sizeof(buf)));
+	zlog_debug("rt action udp src port = %u ", rt->action_udp_src_port);
+	zlog_debug("rt action udp dst port = %u ", rt->action_udp_dst_port);
+	zlog_debug("rt action tcp src port = %u ", rt->action_tcp_src_port);
+	zlog_debug("rt action tcp dst port = %u ", rt->action_tcp_dst_port);
+	zlog_debug("rt action dsfield      = %u ", (rt->action_dsfield & 0xFC)>> 2);
+	zlog_debug("rt action ecn          = %u ", rt->action_dsfield & 0x03);
+	zlog_debug("rt action pcp          = %u ", rt->action_pcp & 0x07);
+	zlog_debug("rt_action queue_id     = %u ", rt->action_queue_id);
+	zlog_debug("rt action vlan id      = %u ", rt->action_set_vlan_id);
+	zlog_debug("rt action vlan flags   = %u ", rt->action_vlan_flags);
+	zlog_debug("rt nhop family         = %u ", rt->action_nh_family);
+	zlog_debug("rt nhop vrf id         = %u ", rt->action_nh_vrf_id);
+	zlog_debug("rt nhop ifindex        = %u ", rt->action_nh_ifindex);
+	zlog_debug("rt nhop type           = %u ", rt->action_nh_type);
+	zlog_debug("rt nhop addr           = %s ",
+		  inet_ntop(AF_INET, &rt->action_nh_addr, buf, sizeof(buf)));
+	zlog_debug("rt nhop mac            = %02x:%02x:%02x:%02x:%02x:%02x",
+		  (uint8_t)rule->nh_mac.octet[0], (uint8_t)rule->nh_mac.octet[1],
+		  (uint8_t)rule->nh_mac.octet[2], (uint8_t)rule->nh_mac.octet[3],
+		  (uint8_t)rule->nh_mac.octet[4], (uint8_t)rule->nh_mac.octet[5]);
+	zlog_debug("rt bound intf vrf id   = %u ", rt->bound_intf_vrf_id);
+	zlog_debug("rt bound intf ifindex  = %u ", rt->bound_intf_ifindex);
+}
+
+int grpc_pbr_rule_update(struct zebra_dplane_ctx *ctx,
+			 struct zebra_dplane_provider *prov)
+{
+	struct zebra_dplane_rule_type rt;
+	int res1 = -1;
+	int res2 = -1;
+
+	if(ctx->zd_op == DPLANE_OP_RULE_ADD){
+		rt.op = 1;
+		grpc_pbr_rule_copy(&(ctx->u.rule.new),&rt);
+		res1 = call_send_rule_to_basebox(prov->basebox_connection,&rt);
+		grpc_update_connection_state(prov, res1);
+	}
+	else if(ctx->zd_op == DPLANE_OP_RULE_DELETE){
+		rt.op = 2;
+		grpc_pbr_rule_copy(&(ctx->u.rule.new),&rt);
+		res1 = call_send_rule_to_basebox(prov->basebox_connection,&rt);
+		grpc_update_connection_state(prov, res1);
+	}
+	else{
+		/* modify is a delete followed by an add */
+		rt.op = 2;
+		grpc_pbr_rule_copy(&(ctx->u.rule.old),&rt);
+		res1 = call_send_rule_to_basebox(prov->basebox_connection,&rt);
+		grpc_update_connection_state(prov, res1);
+		rt.op = 1;
+		grpc_pbr_rule_copy(&(ctx->u.rule.new),&rt);
+		res2 = call_send_rule_to_basebox(prov->basebox_connection,&rt);
+		grpc_update_connection_state(prov, res2);
+	}
+	return 1;
+}
+
+/*
+ * gRPC dataplane provider
+ */
+void grpc_update_multi(struct dplane_ctx_q *ctx_list,
+		       struct zebra_dplane_provider *prov)
+{
+    struct dplane_ctx_q handled_list;
+    struct zebra_dplane_ctx *ctx;
+    uint32_t res =1;
+
+    TAILQ_INIT(&handled_list);
+
+    while (true) {
+        ctx = dplane_ctx_dequeue(ctx_list);
+        if (ctx == NULL)
+            break;
+
+	switch (dplane_ctx_get_op(ctx)) {
+
+		case DPLANE_OP_ROUTE_INSTALL:
+		case DPLANE_OP_ROUTE_UPDATE:
+		case DPLANE_OP_ROUTE_DELETE:
+			//res = grpc_route_update(ctx);
+			break;
+
+		case DPLANE_OP_NH_INSTALL:
+		case DPLANE_OP_NH_UPDATE:
+		case DPLANE_OP_NH_DELETE:
+			//res = grpc_nexthop_update(ctx);
+			break;
+
+		case DPLANE_OP_LSP_INSTALL:
+		case DPLANE_OP_LSP_UPDATE:
+		case DPLANE_OP_LSP_DELETE:
+			break;
+
+		case DPLANE_OP_PW_INSTALL:
+		case DPLANE_OP_PW_UNINSTALL:
+			break;
+
+		case DPLANE_OP_ADDR_INSTALL:
+		case DPLANE_OP_ADDR_UNINSTALL:
+			//res = grpc_address_update_ctx(ctx);
+			break;
+
+		case DPLANE_OP_MAC_INSTALL:
+		case DPLANE_OP_MAC_DELETE:
+			//res = grpc_mac_update_ctx(ctx);
+			break;
+
+		case DPLANE_OP_NEIGH_INSTALL:
+		case DPLANE_OP_NEIGH_UPDATE:
+		case DPLANE_OP_NEIGH_DELETE:
+		case DPLANE_OP_VTEP_ADD:
+		case DPLANE_OP_VTEP_DELETE:
+		case DPLANE_OP_NEIGH_DISCOVER:
+			//res = grpc_neigh_update_ctx(ctx);
+			break;
+
+		case DPLANE_OP_RULE_ADD:
+		case DPLANE_OP_RULE_DELETE:
+		case DPLANE_OP_RULE_UPDATE:
+			res = grpc_pbr_rule_update(ctx, prov);
+			break;
+
+		/* Ignore 'notifications' - no-op */
+		case DPLANE_OP_SYS_ROUTE_ADD:
+		case DPLANE_OP_SYS_ROUTE_DELETE:
+		case DPLANE_OP_ROUTE_NOTIFY:
+		case DPLANE_OP_LSP_NOTIFY:
+			//res = ZEBRA_DPLANE_REQUEST_SUCCESS;
+			break;
+
+		default:
+			//res = ZEBRA_DPLANE_REQUEST_FAILURE;
+			break;
+		}
+
+	if (res == 0)
+		dplane_ctx_set_status(ctx,
+				      ZEBRA_DPLANE_REQUEST_FAILURE);
+	else
+		dplane_ctx_set_status(ctx, ZEBRA_DPLANE_REQUEST_SUCCESS);
+        dplane_ctx_enqueue_tail(&handled_list, ctx);
+    }
+
+    TAILQ_INIT(ctx_list);
+    dplane_ctx_list_append(ctx_list, &handled_list);
+}
+#endif /* HAVE_CAAS && HAVE_GRPC */
+
 #ifdef DPLANE_TEST_PROVIDER
 
 /*
@@ -4300,6 +5015,35 @@ static int test_dplane_shutdown_func(struct zebra_dplane_provider *prov,
 static void dplane_provider_init(void)
 {
 	int ret;
+#if defined (HAVE_CAAS) && defined(HAVE_GRPC)
+	char target_addr[80];
+	struct zebra_dplane_provider *prov_p = NULL;
+	PolicyClient *basebox_connection     = NULL;
+
+	ret = dplane_provider_register("gRPC PROVIDER",
+				       DPLANE_PRIO_PRE_KERNEL,
+				       DPLANE_PROV_FLAGS_DEFAULT, NULL,
+				       grpc_dplane_process_func,
+				       NULL,
+				       NULL, &prov_p);
+	if (ret != AOK)
+		zlog_err("Unable to register grpc dplane provider: %d",
+			 ret);
+	/* Establish a gRPC connection to basebox to send FRR PBR policies*/
+	memset(target_addr,'\0',sizeof(target_addr));
+	strcpy(target_addr, "0.0.0.0:5000");
+	if(prov_p)
+	{
+		basebox_connection = call_connect_to_basebox(target_addr);
+		prov_p->basebox_connection = NULL;
+		dplane_provider_lock(prov_p);
+		prov_p->basebox_connection = basebox_connection;
+		/* will know when we need to send */
+		prov_p->basebox_connection_state = BASEBOX_CONNECTION_UNKNOWN;
+		prov_p->ptr_to_timer_thread = NULL;
+		dplane_provider_unlock(prov_p);
+	}
+#endif /* HAVE_CAAS && GRPC */
 
 	ret = dplane_provider_register("Kernel",
 				       DPLANE_PRIO_KERNEL,
@@ -4311,7 +5055,6 @@ static void dplane_provider_init(void)
 	if (ret != AOK)
 		zlog_err("Unable to register kernel dplane provider: %d",
 			 ret);
-
 #ifdef DPLANE_TEST_PROVIDER
 	/* Optional test provider ... */
 	ret = dplane_provider_register("Test",
@@ -4405,6 +5148,19 @@ static bool dplane_work_pending(void)
 
 		if (ctx != NULL)
 			break;
+#if defined(HAVE_CAAS)
+		/* if I am here, the provider has nothing to do
+		 * on the ctx_in_q and ctx_out_q. Then if CaaS
+		 * provider, remove connection retry timer thread
+		 * if scheduled.
+		 */
+		if(prov->basebox_connection == NULL){
+			if(prov->ptr_to_timer_thread){
+				thread_cancel(&(prov->ptr_to_timer_thread));
+				prov->ptr_to_timer_thread = NULL;
+			}
+		}
+#endif /* HAVE_CAAS */
 
 		DPLANE_LOCK();
 		prov = TAILQ_NEXT(prov, dp_prov_link);
@@ -4436,7 +5192,6 @@ static int dplane_check_shutdown_status(struct thread *event)
 				      dplane_check_shutdown_status,
 				      NULL, 100,
 				      &zdplane_info.dg_t_shutdown_check);
-
 		/* TODO - give up and stop waiting after a short time? */
 
 	} else {

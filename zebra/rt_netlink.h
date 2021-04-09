@@ -100,7 +100,12 @@ extern int netlink_macfdb_read_specific_mac(struct zebra_ns *zns,
 extern int netlink_neigh_read_specific_ip(struct ipaddr *ip,
 					  struct interface *vlan_if);
 extern vrf_id_t vrf_lookup_by_table(uint32_t table_id, ns_id_t ns_id);
-
+#if defined(HAVE_CAAS)
+int netlink_get_neigh_mac_addr(uint32_t nbr_ip,
+			       vrf_id_t vrf_id,
+			       ifindex_t intf_ifindex,
+			       struct ethaddr *mac);
+#endif /* HAVE_CAAS*/
 struct nl_batch;
 extern enum netlink_msg_status
 netlink_put_route_update_msg(struct nl_batch *bth,

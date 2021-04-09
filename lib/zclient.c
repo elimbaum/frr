@@ -1408,6 +1408,7 @@ stream_failure:
 	return -1;
 }
 
+#if !defined (HAVE_CAAS)
 static void zapi_encode_prefix(struct stream *s, struct prefix *p,
 			       uint8_t family)
 {
@@ -1423,7 +1424,6 @@ static void zapi_encode_prefix(struct stream *s, struct prefix *p,
 	stream_putc(s, p->prefixlen);
 	stream_put(s, &p->u.prefix, prefix_blen(p));
 }
-
 int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s, struct pbr_rule *zrule)
 {
 	stream_reset(s);
@@ -1454,7 +1454,7 @@ int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s, struct pbr_rule *zrule)
 
 	return 0;
 }
-
+#endif
 bool zapi_nhg_notify_decode(struct stream *s, uint32_t *id,
 			    enum zapi_nhg_notify_owner *note)
 {

@@ -567,6 +567,8 @@ AC_ARG_ENABLE([confd],
   AS_HELP_STRING([--enable-confd=ARG], [enable confd integration]))
 AC_ARG_ENABLE([sysrepo],
   AS_HELP_STRING([--enable-sysrepo], [enable sysrepo integration]))
+AC_ARG_ENABLE([caas],
+  AS_HELP_STRING([--enable-caas], [enable caas feature]))
 AC_ARG_ENABLE([grpc],
   AS_HELP_STRING([--enable-grpc], [enable the gRPC northbound plugin]))
 AC_ARG_ENABLE([zeromq],
@@ -1843,6 +1845,24 @@ if test "$enable_sysrepo" = "yes"; then
 fi
 
 dnl ---------------
+dnl caas
+dnl ---------------
+if test "$enable_caas" = "yes"; then
+  PKG_CHECK_MODULES([GRPC], [grpc grpc++ protobuf], [
+    AC_CHECK_PROGS([PROTOC], [protoc], [/bin/false])
+    if test "$PROTOC" = "/bin/false"; then
+      AC_MSG_FAILURE([grpc requested but protoc not found.])
+    fi
+
+    AC_DEFINE([HAVE_CAAS], [1], [Enable the caas feature])
+    HAVE_CAAS=true
+  ], [
+    HAVE_CAAS=false
+    AC_MSG_ERROR([grpc/grpc++ were not found on your system.])
+  ])
+fi
+
+dnl ---------------
 dnl gRPC
 dnl ---------------
 if test "$enable_grpc" = "yes"; then
@@ -2438,6 +2458,8 @@ dnl various features
 AM_CONDITIONAL([SUPPORT_REALMS], [test "$enable_realms" = "yes"])
 AM_CONDITIONAL([ENABLE_BGP_VNC], [test "$enable_bgp_vnc" != "no"])
 AM_CONDITIONAL([BGP_BMP], [$bgpd_bmp])
+AM_CONDITIONAL([HAVE_CAAS], [test "$enable_caas" = "yes"])
+
 dnl northbound
 AM_CONDITIONAL([SQLITE3], [$SQLITE3])
 AM_CONDITIONAL([CONFD], [test "$enable_confd" != ""])

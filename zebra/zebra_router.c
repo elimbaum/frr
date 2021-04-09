@@ -273,7 +273,7 @@ void zebra_router_init(bool asic_offload, bool notify_on_ack)
 	zebra_vxlan_init();
 	zebra_mlag_init();
 
-	zrouter.rules_hash = hash_create_size(8, zebra_pbr_rules_hash_key,
+	zrouter.rules_hash = hash_create_size(32, zebra_pbr_rules_hash_key,
 					      zebra_pbr_rules_hash_equal,
 					      "Rules Hash");
 
