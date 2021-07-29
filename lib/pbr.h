@@ -53,9 +53,7 @@ struct pbr_filter {
 #define PBR_DSFIELD_DSCP (0xfc) /* Upper 6 bits of DS field: DSCP */
 #define PBR_DSFIELD_ECN (0x03)	/* Lower 2 bits of DS field: BCN */
 
-//#if defined (HAVE_CAAS)
 #define PBR_PCP         (0x07)  /* 3 bit value 0..7 */
-//#endif /* HAVE_CAAS */
 	/* Source and Destination IP address with masks. */
 	struct prefix src_ip;
 	struct prefix dst_ip;
@@ -63,7 +61,6 @@ struct pbr_filter {
 	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
 	uint16_t src_port;
 	uint16_t dst_port;
-//#if defined (HAVE_CAAS)
 	uint32_t udp_src_port;
 	uint32_t udp_dst_port;
 	uint32_t tcp_src_port;
@@ -72,7 +69,6 @@ struct pbr_filter {
 	uint8_t  pcp;
 	uint16_t vlan_id;
 	uint16_t vlan_flags;
-//#endif /* HAVE_CAAS */
 	/* Filter by Differentiated Services field  */
 	uint8_t dsfield; /* DSCP (6 bits) & ECN (2 bits) */
 
@@ -90,7 +86,6 @@ struct pbr_filter {
  * the user criteria may directly point to a table too.
  */
 struct pbr_action {
-//#if defined (HAVE_CAAS)
 	/* Source and Destination IP address with masks. */
 	struct prefix src_ip;
 	struct prefix dst_ip;
@@ -112,7 +107,6 @@ struct pbr_action {
 	ifindex_t            nh_ifindex;
 	enum nexthop_types_t nh_type;
 	union g_addr         nh_addr;
-//#endif /* HAVE_CAAS */
 	uint32_t table;
 };
 
@@ -124,9 +118,9 @@ struct pbr_action {
  * order amongst rules.
  */
 struct pbr_rule {
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 	vrf_id_t vrf_id;
-#endif /* HAVE_CAAS*/
+#endif /* HAVE_BASEBOX*/
 	uint32_t seq;
 	uint32_t priority;
 	uint32_t unique;
@@ -134,7 +128,6 @@ struct pbr_rule {
 	struct pbr_action action;
 	vrf_id_t bound_intf_vrf_id;
 	ifindex_t bound_intf_ifindex;
-//#endif /* HAVE_CAAS*/
 	char ifname[INTERFACE_NAMSIZ + 1];
 };
 
@@ -170,10 +163,10 @@ struct pbr_rule {
 #define MATCH_FLOW_LABEL_SET		(1 << 12)
 #define MATCH_FLOW_LABEL_INVERSE_SET	(1 << 13)
 
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 extern int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s,
 				struct pbr_rule *zrule);
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 
 #ifdef __cplusplus
 }

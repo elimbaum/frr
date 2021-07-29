@@ -961,7 +961,7 @@ int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 	}
 	return ret;
 }
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 /*
  * netlink_parse2_info
  *
@@ -1066,7 +1066,7 @@ int netlink_parse2_info(int (*filter)(struct nlmsghdr *, ns_id_t, int, void *),
 	}
 	return ret;
 }
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 /*
  * netlink_talk_info
  *

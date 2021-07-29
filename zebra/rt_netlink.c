@@ -2818,7 +2818,7 @@ netlink_vxlan_flood_update_ctx(const struct zebra_dplane_ctx *ctx, int cmd,
 	((struct rtattr *)(((char *)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg))))
 #endif
 
-#if defined (HAVE_CAAS)
+#if defined (HAVE_BASEBOX)
 static int netlink_parse_nexthop_mac(struct nlmsghdr *h,
 				     ns_id_t ns_id,
 				     int startup,
@@ -2902,7 +2902,7 @@ int netlink_get_neigh_mac_addr(uint32_t nbr_ip,
 				  &dp_info, 1, 0,(void *) mac);
 	return 0;
 }
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 
 static int netlink_macfdb_change(struct nlmsghdr *h, int len, ns_id_t ns_id)
 {

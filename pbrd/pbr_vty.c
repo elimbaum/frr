@@ -1178,7 +1178,6 @@ static void vty_show_pbrms(struct vty *vty,
 
 	if (pbrms->mark)
 		vty_out(vty, "        Match MARK %u\n", pbrms->mark);
-//#if defined(HAVE_CAAS)
 	if (pbrms->match_pcp != 0)
 		vty_out(vty, "        Match PCP %d\n",
 			pbrms->match_pcp);
@@ -1186,11 +1185,9 @@ static void vty_show_pbrms(struct vty *vty,
 	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE)
 		vty_out(vty, "        Match Protocol %u\n",
 			pbrms->match_proto_id);
-//#endif /* HAVE_CAAS */
 	if (pbrms->src)
 		vty_out(vty, "        Match SRC IP %pFX\n", pbrms->src);
 
-//#if defined(HAVE_CAAS)
 	if (pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
 		vty_out(vty, "        Match TCP dst port %u\n",
 			pbrms->match_tcp_dst_port);
@@ -1250,7 +1247,6 @@ static void vty_show_pbrms(struct vty *vty,
 		vty_out(vty,"        Set VLAN ID %u\n", pbrms->set_vlan_id);
 	if (pbrms->action_vlan_flags == PBR_MAP_STRIP_INNER_ANY)
 		vty_out(vty,"        Strip VLAN ID any\n");
-//#endif /* HAVE_CAAS */
 	if (pbrms->nhgrp_name) {
 		vty_out(vty, "        Nexthop-Group: %s\n", pbrms->nhgrp_name);
 
@@ -1653,7 +1649,6 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 
 	if (pbrms->mark)
 		vty_out(vty, " match mark %u\n", pbrms->mark);
-//#if defined (HAVE_CAAS)
 	if (pbrms->match_pcp != 0)
 		vty_out(vty, " match pcp %d\n", pbrms->match_pcp);
 
@@ -1719,7 +1714,6 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 
 	if(pbrms->action_vlan_flags == PBR_MAP_STRIP_INNER_ANY)
 		vty_out(vty," strip vlan any\n");
-//#endif /* HAVE_CAAS */
 	if (pbrms->vrf_unchanged)
 		vty_out(vty, " set vrf unchanged\n");
 
