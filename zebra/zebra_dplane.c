@@ -5150,7 +5150,7 @@ static bool dplane_work_pending(void)
 			break;
 #if defined(HAVE_BASEBOX)
 		/* if I am here, the provider has nothing to do
-		 * on the ctx_in_q and ctx_out_q. Then if CaaS
+		 * on the ctx_in_q and ctx_out_q. Then if grpc
 		 * provider, remove connection retry timer thread
 		 * if scheduled.
 		 */

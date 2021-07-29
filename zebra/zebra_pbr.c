@@ -231,8 +231,8 @@ uint32_t zebra_pbr_rules_hash_key(const void *arg)
 
 bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
 {
-	/* since CaaS programs OpenFlow device, a rule is a new rule
-	 * if the match clauses are different. We do not care about actions
+	/* since grpc provider programs OpenFlow device, a rule is a new rule
+	 * if the match clauses are different. We do not care about actions.
 	 * of course priority, unique, intf,etc have to be the same
 	 */
 	const struct zebra_pbr_rule *r1, *r2;
