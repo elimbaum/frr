@@ -58,11 +58,11 @@ RB_HEAD(pbr_map_entry_head, pbr_map);
 RB_PROTOTYPE(pbr_map_entry_head, pbr_map, pbr_map_entry, pbr_map_compare)
 
 struct pbr_map_interface {
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 	uint64_t install_bit;
 #else
 	uint32_t install_bit;
-#endif /*HAVE_CAAS*/
+#endif /*HAVE_BASEBOX*/
 
 	struct interface *ifp;
 
@@ -101,7 +101,6 @@ struct pbr_map_sequence {
 	 */
 	unsigned char family;
 
-//#if defined(HAVE_CAAS)
 	struct prefix *action_src;
 	struct prefix *action_dst;
 
@@ -137,7 +136,6 @@ struct pbr_map_sequence {
 	ifindex_t            nh_ifindex;
 	enum nexthop_types_t nh_type;
 	union g_addr         nh_addr;
-//#endif /* HAVE_CAAS */
 	/*
 	 * Use interface's vrf.
 	 */
@@ -187,9 +185,7 @@ struct pbr_map_sequence {
 #define PBR_MAP_INVALID_BOTH_NHANDGRP    (1 << 3)
 #define PBR_MAP_INVALID_EMPTY            (1 << 4)
 #define PBR_MAP_INVALID_VRF              (1 << 5)
-//#if defined(HAVE_CAAS)
 #define PBR_MAP_INVALID_SET_STRIP_VLAN   (1 << 6)
-//#endif
 	uint64_t reason;
 
 	QOBJ_FIELDS
@@ -268,7 +264,6 @@ void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
 				   struct nexthop *nhop);
 
 
-//#if defined(HAVE_CAAS)
 extern void pbr_set_match_clause_for_vlan(struct pbr_map_sequence *pbrms,
 					  uint16_t vlan_id,
 					  uint16_t vlan_flags);
@@ -311,6 +306,4 @@ extern void pbr_set_match_clause_for_pcp(struct pbr_map_sequence *pbrms,
 					 uint8_t pcp);
 extern void pbr_set_action_clause_for_pcp(struct pbr_map_sequence *pbrms,
 					  uint8_t pcp);
-//#endif /* HAVE_CAAS */
-
 #endif

@@ -38,9 +38,7 @@
 #include "pbr_debug.h"
 #include "pbr_vrf.h"
 
-//#if defined(HAVE_CAAS)
 #include "pbr.h"
-//#endif /* HAVE_CAAS */
 
 DEFINE_MTYPE_STATIC(PBRD, PBR_MAP, "PBR Map")
 DEFINE_MTYPE_STATIC(PBRD, PBR_MAP_SEQNO, "PBR Map Sequence")
@@ -110,7 +108,7 @@ static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 			       const struct pbr_map_interface *pmi)
 {
 
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 	uint64_t is_installed = (uint64_t)1 << pmi->install_bit;
 
 	is_installed &= pbrms->installed;
@@ -130,10 +128,9 @@ static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 		}
 	}
 	return false;
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 }
 
-//#if defined(HAVE_CAAS)
 void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
 				   struct nexthop *nhop)
 {
@@ -401,7 +398,6 @@ void pbr_set_action_clause_for_queue_id(struct pbr_map_sequence *pbrms,
 		pbr_map_check(pbrms, true);
 	}
 }
-//#endif /* HAVE_CAAS */
 
 /* If any sequence is installed on the interface, assume installed */
 static bool
@@ -442,11 +438,11 @@ static void pbr_map_pbrms_update_common(struct pbr_map_sequence *pbrms,
 	struct pbr_map_interface *pmi;
 
 	pbrm = pbrms->parent;
-#if !defined (HAVE_CAAS)
+#if !defined (HAVE_BASEBOX)
 	if (pbrms->nhs_installed && pbrm->incoming->count)
 #else
 	if (pbrm->incoming->count)
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 	{
 		for (ALL_LIST_ELEMENTS_RO(pbrm->incoming, node, pmi)) {
 			if (!pmi->ifp)
@@ -493,7 +489,7 @@ void pbr_map_reason_string(unsigned int reason, char *buf, int size)
 	}
 }
 
-#if !defined (HAVE_CAAS)
+#if !defined (HAVE_BASEBOX)
 void pbr_map_final_interface_deletion(struct pbr_map *pbrm,
 				      struct pbr_map_interface *pmi)
 {
@@ -517,7 +513,7 @@ void pbr_map_final_interface_deletion(struct pbr_map *pbrm,
 		XFREE(MTYPE_PBR_MAP_INTERFACE, pmi);
 	}
 }
-#endif /* HAVE CAAS */
+#endif /* HAVE BASEBOX */
 void pbr_map_interface_delete(struct pbr_map *pbrm, struct interface *ifp_del)
 {
 	struct listnode *node;
@@ -846,7 +842,6 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->seqno = seqno;
 		pbrms->ruleno = pbr_nht_get_next_rule(seqno);
 		pbrms->parent = pbrm;
-//#if defined(HAVE_CAAS)
 		pbrms->match_vlan_id = 0;
 		pbrms->set_vlan_id   = 0;
 		pbrms->match_vlan_flags  = 0;
@@ -867,14 +862,14 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->action_tcp_dst_port = PBR_UNDEFINED_VALUE;
 
 		pbrms->action_queue_id     = 255;
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 		pbrms->reason =
 			PBR_MAP_INVALID_EMPTY;
 #else
 		pbrms->reason =
 			PBR_MAP_INVALID_EMPTY |
 			PBR_MAP_INVALID_NO_NEXTHOPS;
-#endif /*HAVE_CAAS*/
+#endif /*HAVE_BASEBOX */
 		pbrms->vrf_name[0] = '\0';
 
 		QOBJ_REG(pbrms, pbr_map_sequence);
@@ -883,7 +878,7 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 
 	return pbrms;
 }
-#if ! defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 static void
 pbr_map_sequence_check_nexthops_valid(struct pbr_map_sequence *pbrms)
 {
@@ -931,7 +926,7 @@ pbr_map_sequence_check_nexthops_valid(struct pbr_map_sequence *pbrms)
 			pbrms->nhs_installed = true;
 	}
 }
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 {
 	if (!pbrms->src                   &&
@@ -963,7 +958,6 @@ static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 	    !pbrms->nhgrp_name)
 		pbrms->reason |= PBR_MAP_INVALID_EMPTY;
 }
-//#if defined(HAVE_CAAS)
 static void
 pbr_map_sequence_check_set_and_strip_vlan(struct pbr_map_sequence *pbrms)
 {
@@ -978,7 +972,7 @@ pbr_map_sequence_check_set_and_strip_vlan(struct pbr_map_sequence *pbrms)
 	   (pbrms->action_vlan_flags != 0))
 		pbrms->reason |= PBR_MAP_INVALID_SET_STRIP_VLAN;
 }
-//#endif /* HAVE_CAAS */
+
 /*
  * Checks to see if we think that the pbmrs is valid.  If we think
  * the config is valid return true.
@@ -987,7 +981,7 @@ static void pbr_map_sequence_check_valid(struct pbr_map_sequence *pbrms)
 {
 	pbr_map_sequence_check_not_empty(pbrms);
 	pbr_map_sequence_check_set_and_strip_vlan(pbrms);
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 	pbr_map_sequence_check_nexthops_valid(pbrms);
 #endif
 }
@@ -1080,12 +1074,12 @@ void pbr_map_policy_install(const char *name)
 		DEBUGD(&pbr_dbg_map,
 		       "%s: Looking at what to install %s(%u) %d %d", __func__,
 		       name, pbrms->seqno, pbrm->valid, pbrms->nhs_installed);
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 		if (pbrm->valid && pbrms->nhs_installed
 		    && pbrm->incoming->count)
 #else
 		if(pbrm->incoming->count)
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 		{
 			DEBUGD(&pbr_dbg_map, "\tInstalling %s %u", pbrm->name,
 			       pbrms->seqno);
@@ -1096,7 +1090,7 @@ void pbr_map_policy_install(const char *name)
 		}
 	}
 }
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 void pbr_map_policy_delete(struct pbr_map *pbrm, struct pbr_map_interface *pmi)
 {
 	struct listnode *node;
@@ -1131,7 +1125,7 @@ void pbr_map_policy_delete(struct pbr_map *pbrm, struct pbr_map_interface *pmi)
 	pbr_map_final_interface_deletion(pbrm, pmi);
 }
 
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 /*
  * For a nexthop group specified, see if any of the pbr-maps
  * are using it and if so, check to see that we are still

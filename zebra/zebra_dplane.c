@@ -37,7 +37,7 @@
 #include "zebra/zebra_pbr.h"
 #include "printfrr.h"
 
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 #include "grpc/zebra_grpc_provider.h"
 extern int netlink_get_neigh_mac_addr(uint32_t nbr_ip,
 			       vrf_id_t vrf_id,
@@ -62,7 +62,7 @@ int grpc_pbr_rule_update(struct zebra_dplane_ctx *ctx,
 void grpc_update_multi(struct dplane_ctx_q *ctx_list,
 		       struct zebra_dplane_provider *prov);
 #endif /* HAVE_GRPC */
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 
 
 /* Memory type for context blocks */
@@ -385,14 +385,14 @@ struct zebra_dplane_provider {
 	/* Name */
 	char dp_name[DPLANE_PROVIDER_NAMELEN + 1];
 
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 	PolicyClient *basebox_connection;
 	struct thread *ptr_to_timer_thread;
 	uint8_t basebox_connection_state;
 #define BASEBOX_CONNECTION_UNKNOWN  1
 #define BASEBOX_CONNECTION_UP       2
 #define BASEBOX_CONNECTION_DOWN     3
-#endif /* HAVE_CAAS*/
+#endif /* HAVE_BASEBOX*/
 
 	/* Priority, for ordering among providers */
 	uint8_t dp_priority;
@@ -2407,9 +2407,9 @@ static int dplane_ctx_pw_init(struct zebra_dplane_ctx *ctx,
 static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 					struct zebra_pbr_rule *rule)
 {
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 	struct ethaddr mac;
-#endif
+#endif /* HAVE_BASEBOX */
 	dplane_rule->seq      = rule->rule.seq;
 	dplane_rule->priority = rule->rule.priority;
 	dplane_rule->unique   = rule->rule.unique;
@@ -2450,7 +2450,7 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->bound_intf_vrf_id  = rule->rule.bound_intf_vrf_id;
 	dplane_rule->bound_intf_ifindex = rule->rule.bound_intf_ifindex;
 	strlcpy(dplane_rule->bound_ifname, rule->rule.ifname, INTERFACE_NAMSIZ);
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 	if((rule->rule.action.nh_type == NEXTHOP_TYPE_IPV4) ||
 	   (rule->rule.action.nh_type == NEXTHOP_TYPE_IPV4_IFINDEX))
 	{
@@ -2468,7 +2468,7 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 			memcpy(&(dplane_rule->nh_mac),&mac,ETH_ALEN);
 		}
 	}
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 }
 /**
  * dplane_ctx_rule_init() - Initialize a context block for a PBR rule update.
@@ -3884,10 +3884,10 @@ int dplane_provider_register(const char *name,
 	TAILQ_INIT(&(p->dp_ctx_in_q));
 	TAILQ_INIT(&(p->dp_ctx_out_q));
 
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 	p->basebox_connection  = NULL;
 	p->basebox_connection_state = BASEBOX_CONNECTION_UNKNOWN;
-#endif
+#endif /* HAVE_BASEBOX */
 	p->dp_flags = flags;
 	p->dp_priority = prio;
 	p->dp_fp = fp;
@@ -4351,7 +4351,7 @@ static int kernel_dplane_process_func(struct zebra_dplane_provider *prov)
 	return 0;
 }
 
-#if defined(HAVE_CAAS) && defined (HAVE_GRPC)
+#if defined(HAVE_BASEBOX) && defined (HAVE_GRPC)
 static void dplane_grpc_replay_one_rule(struct hash_bucket *b, void *data)
 {
 	struct zebra_pbr_rule *rule = b->data;
@@ -4942,7 +4942,7 @@ void grpc_update_multi(struct dplane_ctx_q *ctx_list,
     TAILQ_INIT(ctx_list);
     dplane_ctx_list_append(ctx_list, &handled_list);
 }
-#endif /* HAVE_CAAS && HAVE_GRPC */
+#endif /* HAVE_BASEBOX && HAVE_GRPC */
 
 #ifdef DPLANE_TEST_PROVIDER
 
@@ -5015,7 +5015,7 @@ static int test_dplane_shutdown_func(struct zebra_dplane_provider *prov,
 static void dplane_provider_init(void)
 {
 	int ret;
-#if defined (HAVE_CAAS) && defined(HAVE_GRPC)
+#if defined (HAVE_BASEBOX) && defined(HAVE_GRPC)
 	char target_addr[80];
 	struct zebra_dplane_provider *prov_p = NULL;
 	PolicyClient *basebox_connection     = NULL;
@@ -5043,7 +5043,7 @@ static void dplane_provider_init(void)
 		prov_p->ptr_to_timer_thread = NULL;
 		dplane_provider_unlock(prov_p);
 	}
-#endif /* HAVE_CAAS && GRPC */
+#endif /* HAVE_BASEBOX && GRPC */
 
 	ret = dplane_provider_register("Kernel",
 				       DPLANE_PRIO_KERNEL,
@@ -5148,7 +5148,7 @@ static bool dplane_work_pending(void)
 
 		if (ctx != NULL)
 			break;
-#if defined(HAVE_CAAS)
+#if defined(HAVE_BASEBOX)
 		/* if I am here, the provider has nothing to do
 		 * on the ctx_in_q and ctx_out_q. Then if CaaS
 		 * provider, remove connection retry timer thread
@@ -5160,7 +5160,7 @@ static bool dplane_work_pending(void)
 				prov->ptr_to_timer_thread = NULL;
 			}
 		}
-#endif /* HAVE_CAAS */
+#endif /* HAVE_BASEBOX */
 
 		DPLANE_LOCK();
 		prov = TAILQ_NEXT(prov, dp_prov_link);

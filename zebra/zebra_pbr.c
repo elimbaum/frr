@@ -155,7 +155,7 @@ void zebra_pbr_rules_free(void *arg)
 	(void)dplane_pbr_rule_delete(rule);
 	XFREE(MTYPE_TMP, rule);
 }
-#if !defined(HAVE_CAAS)
+#if !defined(HAVE_BASEBOX)
 uint32_t zebra_pbr_rules_hash_key(const void *arg)
 {
 	const struct zebra_pbr_rule *rule;
@@ -283,7 +283,7 @@ bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
 		return false;
 	return true;
 }
-#endif /* HAVE_CAAS*/
+#endif /* HAVE_BASEBOX*/
 
 struct pbr_rule_unique_lookup {
 	struct zebra_pbr_rule *rule;
