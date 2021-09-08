@@ -118,9 +118,8 @@ struct pbr_action {
  * order amongst rules.
  */
 struct pbr_rule {
-#if !defined(HAVE_BASEBOX)
 	vrf_id_t vrf_id;
-#endif /* HAVE_BASEBOX*/
+
 	uint32_t seq;
 	uint32_t priority;
 	uint32_t unique;
@@ -163,10 +162,8 @@ struct pbr_rule {
 #define MATCH_FLOW_LABEL_SET		(1 << 12)
 #define MATCH_FLOW_LABEL_INVERSE_SET	(1 << 13)
 
-#if !defined(HAVE_BASEBOX)
 extern int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s,
 				struct pbr_rule *zrule);
-#endif /* HAVE_BASEBOX */
 
 #ifdef __cplusplus
 }

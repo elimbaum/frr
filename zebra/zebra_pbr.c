@@ -155,7 +155,7 @@ void zebra_pbr_rules_free(void *arg)
 	(void)dplane_pbr_rule_delete(rule);
 	XFREE(MTYPE_TMP, rule);
 }
-#if !defined(HAVE_BASEBOX)
+// ELITODO: need to update hash function with new fields.
 uint32_t zebra_pbr_rules_hash_key(const void *arg)
 {
 	const struct zebra_pbr_rule *rule;
@@ -178,6 +178,7 @@ uint32_t zebra_pbr_rules_hash_key(const void *arg)
 			    prefix_hash_key(&rule->rule.filter.dst_ip),
 			    jhash_1word(rule->rule.unique, key));
 }
+
 bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
 {
 	const struct zebra_pbr_rule *r1, *r2;
@@ -218,72 +219,6 @@ bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
 		return false;
 	return true;
 }
-#else
-uint32_t zebra_pbr_rules_hash_key(const void *arg)
-{
-	const struct zebra_pbr_rule *rule;
-	uint32_t key;
-
-	rule = arg;
-	key = rule->rule.unique;
-	return key;
-}
-
-bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
-{
-	/* since grpc provider programs OpenFlow device, a rule is a new rule
-	 * if the match clauses are different. We do not care about actions.
-	 * of course priority, unique, intf,etc have to be the same
-	 */
-	const struct zebra_pbr_rule *r1, *r2;
-
-	r1 = (const struct zebra_pbr_rule *)arg1;
-	r2 = (const struct zebra_pbr_rule *)arg2;
-
-	if (r1->rule.seq != r2->rule.seq)
-		return false;
-
-	if (r1->rule.priority != r2->rule.priority)
-		return false;
-
-	if (r1->rule.unique != r2->rule.unique)
-		return false;
-
-	if (!prefix_same(&r1->rule.filter.src_ip, &r2->rule.filter.src_ip))
-		return false;
-
-	if (!prefix_same(&r1->rule.filter.dst_ip, &r2->rule.filter.dst_ip))
-		return false;
-
-	/* if (strcmp(r1->rule.ifname, r2->rule.ifname) != 0)
-	   return false; */
-	if (r1->rule.bound_intf_ifindex != r2->rule.bound_intf_ifindex)
-		return false;
-
-	if (r1->vrf_id != r2->vrf_id)
-		return false;
-
-	if (r1->rule.filter.udp_src_port != r2->rule.filter.udp_src_port)
-		return false;
-	if (r1->rule.filter.udp_dst_port != r2->rule.filter.udp_dst_port)
-		return false;
-	if (r1->rule.filter.tcp_src_port != r2->rule.filter.tcp_src_port)
-		return false;
-	if (r1->rule.filter.tcp_dst_port != r2->rule.filter.tcp_dst_port)
-		return false;
-	if (r1->rule.filter.proto_id != r2->rule.filter.proto_id)
-		return false;
-	if (r1->rule.filter.pcp != r2->rule.filter.pcp)
-		return false;
-	if (r1->rule.filter.vlan_id != r2->rule.filter.vlan_id)
-		return false;
-	if (r1->rule.filter.vlan_flags != r2->rule.filter.vlan_flags)
-		return false;
-	if (r1->rule.filter.dsfield != r2->rule.filter.dsfield)
-		return false;
-	return true;
-}
-#endif /* HAVE_BASEBOX*/
 
 struct pbr_rule_unique_lookup {
 	struct zebra_pbr_rule *rule;

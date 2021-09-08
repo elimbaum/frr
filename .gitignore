@@ -29,6 +29,9 @@
 /libtool
 /libtool.orig
 /changelog-auto
+/m4/ac
+/pathd/
+/pceplib/
 
 /Makefile
 /Makefile.in
@@ -108,3 +111,5 @@ refix
 .vscode
 .kitchen
 .emacs.desktop*
+
+*.xref

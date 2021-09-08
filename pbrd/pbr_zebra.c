@@ -497,7 +497,6 @@ static void pbr_encode_pbr_map_sequence_prefix(struct stream *s,
 	stream_put(s, &p->u.prefix, prefix_blen(p));
 }
 
-#if !defined(HAVE_BASEBOX)
 static void
 pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 				const struct pbr_map_sequence *pbrms,
@@ -517,16 +516,14 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
-#endif /* HAVE_BASEBOX */
 
+// ELITODO: need to add new fields to the stream, and load them off at the other end.
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)
 {
 	unsigned char family;
-#if defined (HAVE_BASEBOX)
-        char buf[PREFIX2STR_BUFFER];
-#endif
+
 	family = AF_INET;
 	if (pbrms->family)
 		family = pbrms->family;
@@ -538,53 +535,17 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* src and dest IP addresses */
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
-#if defined(HAVE_BASEBOX)
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_src, family);
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_dst, family);
-
-
-	/* protocol id */
-	stream_putl(s, pbrms->match_proto_id);
-
-	/* udp ports */
-	stream_putl(s, pbrms->match_udp_src_port);
-	stream_putl(s, pbrms->match_udp_dst_port);
-	stream_putl(s, pbrms->action_udp_src_port);
-	stream_putl(s, pbrms->action_udp_dst_port);
-
-	/* tcp ports */
-	stream_putl(s, pbrms->match_tcp_src_port);
-	stream_putl(s, pbrms->match_tcp_dst_port);
-	stream_putl(s, pbrms->action_tcp_src_port);
-	stream_putl(s, pbrms->action_tcp_dst_port);
-#endif /* HAVE_BASEBOX */
 
 	/* dsfield & ecn */
 	stream_putc(s, pbrms->match_dsfield);
-#if defined(HAVE_BASEBOX)
-	stream_putc(s, pbrms->action_dsfield);
-#endif /* HAVE_BASEBOX */
 
 	/* mark */
 	stream_putl(s, pbrms->mark);
-#if defined(HAVE_BASEBOX)
-	/* pcp */
-	stream_putc(s,pbrms->match_pcp);
-	stream_putc(s,pbrms->action_pcp);
-
-	/* Queue ID */
-	stream_putc(s, pbrms->action_queue_id);
-
-	stream_putw(s, pbrms->match_vlan_id);
-	stream_putw(s, pbrms->set_vlan_id);
-	stream_putw(s, pbrms->match_vlan_flags);
-	stream_putw(s, pbrms->action_vlan_flags);
-#endif /* HAVE_BASEBOX */
 
 	/* if the user does not use the command "set vrf name |unchanged"
 	 * then pbr_encode_pbr_map_sequence_vrf will not be called
 	 */
-#if !defined(HAVE_BASEBOX)
+
 	/* these statement get a table id */
 	if (pbrms->vrf_unchanged || pbrms->vrf_lookup)
 		pbr_encode_pbr_map_sequence_vrf(s, pbrms, ifp);
@@ -592,20 +553,12 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 		stream_putl(s, pbr_nht_get_table(pbrms->nhgrp_name));
 	else if (pbrms->nhg)
 		stream_putl(s, pbr_nht_get_table(pbrms->internal_nhg_name));
-#else
-	/* get the nexthop information */
-	stream_putc(s,family);
-	stream_putl(s,pbrms->nh_vrf_id);
-	stream_putl(s,pbrms->nh_ifindex);
-	stream_putl(s,pbrms->nh_type);
-	stream_put(s, &(pbrms->nh_addr.ipv4.s_addr), IPV4_MAX_BYTELEN);
-#endif /* HAVE_BASEBOX */
 
 	/* this is the interface to which the policy is bound */
 	stream_putl(s, ifp->vrf_id);
 	stream_putl(s, ifp->ifindex);
 	stream_put(s, ifp->name, INTERFACE_NAMSIZ);
-#if defined(HAVE_BASEBOX)
+
 	zlog_debug("Pbrd Daemon Sending to Zebra");
 	zlog_debug("===========================================");
 	zlog_debug("pbrms->seq                       = %u ", pbrms->seqno);
@@ -670,14 +623,14 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	zlog_debug("pbrms->nh_type                   = %u ", pbrms->nh_type);
 	zlog_debug("pbrms->nh_ipv4_addr              = %s ",
 		  inet_ntop(AF_INET, &pbrms->nh_addr.ipv4, buf, sizeof(buf)));
-#endif /* HAVE_BASEBOX */
+
 	zlog_debug("pbrms->bound_intf_vrf_id         = %u ", ifp->vrf_id );
 	zlog_debug("pbrms->bound_ifname              = %s ", ifp->name);
 	zlog_debug("pbrms->bound_ifindex             = %u ", ifp->ifindex);
 	zlog_debug("\n\n");
 }
 
-#if !defined (HAVE_BASEBOX)
+
 bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 		      struct pbr_map_interface *pmi, bool install, bool changed)
 {
@@ -723,49 +676,3 @@ bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 	zclient_send_message(zclient);
 	return true;
 }
-#else
-
-bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
-		      struct pbr_map_interface *pmi, bool install, bool changed)
-{
-	struct pbr_map *pbrm = pbrms->parent;
-	struct stream *s;
-	bool is_installed;
-
-	if (pbrms->parent == pmi->pbrm){
-		if(bf_test_index(pbrms->parent->ifi_bitfield,
-				 pmi->install_bit))
-			is_installed = 1;
-	}
-
-	/*
-	 * If we are not installed and asked
-	 * to delete just return.
-	 */
-	if (!install && !is_installed) {
-		return false;
-	}
-	s = zclient->obuf;
-	stream_reset(s);
-
-	zclient_create_header(s,
-			      install ? ZEBRA_RULE_ADD : ZEBRA_RULE_DELETE,
-			      VRF_DEFAULT);
-
-	/*
-	 * We are sending one item at a time at the moment
-	 */
-	stream_putl(s, 1);
-
-	DEBUGD(&pbr_dbg_zebra, "%s: \t%s %s seq %u %d %s %u", __func__,
-	       install ? "Installing" : "Deleting", pbrm->name, pbrms->seqno,
-	       install, pmi->ifp->name, pmi->delete);
-
-	pbr_encode_pbr_map_sequence(s, pbrms, pmi->ifp);
-
-	stream_putw_at(s, 0, stream_get_endp(s));
-
-	zclient_send_message(zclient);
-	return true;
-}
-#endif /* HAVE_BASEBOX */

@@ -107,8 +107,6 @@ static void pbr_map_interface_list_delete(struct pbr_map_interface *pmi)
 static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 			       const struct pbr_map_interface *pmi)
 {
-
-#if !defined(HAVE_BASEBOX)
 	uint64_t is_installed = (uint64_t)1 << pmi->install_bit;
 
 	is_installed &= pbrms->installed;
@@ -117,18 +115,6 @@ static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 		return true;
 
 	return false;
-#else
-	if(pbrms && pmi)
-	{
-		if (pbrms->parent == pmi->pbrm)
-		{
-			if(bf_test_index(pbrms->parent->ifi_bitfield,
-					 pmi->install_bit))
-				return true;
-		}
-	}
-	return false;
-#endif /* HAVE_BASEBOX */
 }
 
 void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
@@ -438,11 +424,8 @@ static void pbr_map_pbrms_update_common(struct pbr_map_sequence *pbrms,
 	struct pbr_map_interface *pmi;
 
 	pbrm = pbrms->parent;
-#if !defined (HAVE_BASEBOX)
+	
 	if (pbrms->nhs_installed && pbrm->incoming->count)
-#else
-	if (pbrm->incoming->count)
-#endif /* HAVE_BASEBOX */
 	{
 		for (ALL_LIST_ELEMENTS_RO(pbrm->incoming, node, pmi)) {
 			if (!pmi->ifp)
@@ -489,7 +472,6 @@ void pbr_map_reason_string(unsigned int reason, char *buf, int size)
 	}
 }
 
-#if !defined (HAVE_BASEBOX)
 void pbr_map_final_interface_deletion(struct pbr_map *pbrm,
 				      struct pbr_map_interface *pmi)
 {
@@ -501,19 +483,7 @@ void pbr_map_final_interface_deletion(struct pbr_map *pbrm,
 		XFREE(MTYPE_PBR_MAP_INTERFACE, pmi);
 	}
 }
-#else
-void pbr_map_final_interface_deletion(struct pbr_map *pbrm,
-				      struct pbr_map_interface *pmi)
-{
-	if (pmi->delete && pbr_map_interface_is_installed(pbrm, pmi)) {
-		listnode_delete(pbrm->incoming, pmi);
-		pmi->pbrm = NULL;
 
-		bf_release_index(pbrm->ifi_bitfield, pmi->install_bit);
-		XFREE(MTYPE_PBR_MAP_INTERFACE, pmi);
-	}
-}
-#endif /* HAVE BASEBOX */
 void pbr_map_interface_delete(struct pbr_map *pbrm, struct interface *ifp_del)
 {
 	struct listnode *node;
@@ -862,14 +832,11 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->action_tcp_dst_port = PBR_UNDEFINED_VALUE;
 
 		pbrms->action_queue_id     = 255;
-#if defined(HAVE_BASEBOX)
-		pbrms->reason =
-			PBR_MAP_INVALID_EMPTY;
-#else
+
 		pbrms->reason =
 			PBR_MAP_INVALID_EMPTY |
 			PBR_MAP_INVALID_NO_NEXTHOPS;
-#endif /*HAVE_BASEBOX */
+
 		pbrms->vrf_name[0] = '\0';
 
 		QOBJ_REG(pbrms, pbr_map_sequence);
@@ -878,7 +845,7 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 
 	return pbrms;
 }
-#if !defined(HAVE_BASEBOX)
+
 static void
 pbr_map_sequence_check_nexthops_valid(struct pbr_map_sequence *pbrms)
 {
@@ -926,7 +893,7 @@ pbr_map_sequence_check_nexthops_valid(struct pbr_map_sequence *pbrms)
 			pbrms->nhs_installed = true;
 	}
 }
-#endif /* HAVE_BASEBOX */
+
 static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 {
 	if (!pbrms->src                   &&
@@ -981,9 +948,7 @@ static void pbr_map_sequence_check_valid(struct pbr_map_sequence *pbrms)
 {
 	pbr_map_sequence_check_not_empty(pbrms);
 	pbr_map_sequence_check_set_and_strip_vlan(pbrms);
-#if !defined(HAVE_BASEBOX)
 	pbr_map_sequence_check_nexthops_valid(pbrms);
-#endif
 }
 
 static bool pbr_map_check_valid_internal(struct pbr_map *pbrm)
@@ -1074,12 +1039,9 @@ void pbr_map_policy_install(const char *name)
 		DEBUGD(&pbr_dbg_map,
 		       "%s: Looking at what to install %s(%u) %d %d", __func__,
 		       name, pbrms->seqno, pbrm->valid, pbrms->nhs_installed);
-#if !defined(HAVE_BASEBOX)
+
 		if (pbrm->valid && pbrms->nhs_installed
 		    && pbrm->incoming->count)
-#else
-		if(pbrm->incoming->count)
-#endif /* HAVE_BASEBOX */
 		{
 			DEBUGD(&pbr_dbg_map, "\tInstalling %s %u", pbrm->name,
 			       pbrms->seqno);
@@ -1090,7 +1052,7 @@ void pbr_map_policy_install(const char *name)
 		}
 	}
 }
-#if !defined(HAVE_BASEBOX)
+
 void pbr_map_policy_delete(struct pbr_map *pbrm, struct pbr_map_interface *pmi)
 {
 	struct listnode *node;
@@ -1112,20 +1074,7 @@ void pbr_map_policy_delete(struct pbr_map *pbrm, struct pbr_map_interface *pmi)
 
 	pbr_map_final_interface_deletion(pbrm, pmi);
 }
-#else
-void pbr_map_policy_delete(struct pbr_map *pbrm, struct pbr_map_interface *pmi)
-{
-	struct listnode *node;
-	struct pbr_map_sequence *pbrms;
 
-	for (ALL_LIST_ELEMENTS_RO(pbrm->seqnumbers, node, pbrms))
-		pbr_send_pbr_map(pbrms, pmi, false, true);
-
-	pmi->delete = true;
-	pbr_map_final_interface_deletion(pbrm, pmi);
-}
-
-#endif /* HAVE_BASEBOX */
 /*
  * For a nexthop group specified, see if any of the pbr-maps
  * are using it and if so, check to see that we are still

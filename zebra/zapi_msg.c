@@ -2984,9 +2984,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		STREAM_GETW(s, zpr.rule.action.set_vlan_id);
 		STREAM_GETW(s, zpr.rule.filter.vlan_flags);
 		STREAM_GETW(s, zpr.rule.action.vlan_flags);
-#if !defined (HAVE_BASEBOX)
 		STREAM_GETL(s, zpr.rule.action.table);
-#endif /* HAVE_BASEBOX */
 		STREAM_GETC(s,zpr.rule.action.nh_family);
 		STREAM_GETL(s, zpr.rule.action.nh_vrf_id);
 		STREAM_GETL(s, zpr.rule.action.nh_ifindex);
@@ -3037,9 +3035,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		zlog_debug("zpr.rule.action.queue_id           = %u ", zpr.rule.action.queue_id);
 		zlog_debug("zpr.rule.action.vlan_id            = %u ", zpr.rule.action.set_vlan_id);
 		zlog_debug("zpr.rule.action.vlan_flags         = %u ", zpr.rule.action.vlan_flags);
-#if !defined(HAVE_BASEBOX)
 		zlog_debug("zpr.rule.action.table_id           = %u ", zpr.rule.action.table);
-#endif /* HAVE_BASEBOX */
 		zlog_debug("zpr.rule.action.nh_family          = %u ", zpr.rule.action.nh_family);
 		zlog_debug("zpr.rule.action.nh_vrf_id          = %u ", zpr.rule.action.nh_vrf_id);
 		zlog_debug("zpr.rule.action.nh_ifindex         = %u ", zpr.rule.action.nh_ifindex);

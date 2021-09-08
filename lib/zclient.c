@@ -1408,7 +1408,6 @@ stream_failure:
 	return -1;
 }
 
-#if !defined (HAVE_BASEBOX)
 static void zapi_encode_prefix(struct stream *s, struct prefix *p,
 			       uint8_t family)
 {
@@ -1454,7 +1453,7 @@ int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s, struct pbr_rule *zrule)
 
 	return 0;
 }
-#endif /* HAVE_BASEBOX */
+
 bool zapi_nhg_notify_decode(struct stream *s, uint32_t *id,
 			    enum zapi_nhg_notify_owner *note)
 {
