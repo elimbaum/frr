@@ -252,7 +252,7 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 
 			proto_id = p->p_proto;
 		}
-		
+
 		// at this point proto_id is valid
 		if(!no){
 			pbr_set_match_clause_for_proto_id(pbrms, proto_id);
@@ -1199,9 +1199,11 @@ static void vty_show_pbrms(struct vty *vty,
 		vty_out(vty, "        Match PCP %d\n",
 			pbrms->match_pcp);
 
-	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE)
-		vty_out(vty, "        Match Protocol %u\n",
-			pbrms->match_proto_id);
+	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE) {
+		struct protoent *p;
+		p = getprotobynumber(pbrms->match_proto_id);
+		vty_out(vty, "        Match Protocol %u\n", p->p_name);
+	}
 	if (pbrms->src)
 		vty_out(vty, "        Match SRC IP %pFX\n", pbrms->src);
 
