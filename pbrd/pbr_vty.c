@@ -1202,7 +1202,12 @@ static void vty_show_pbrms(struct vty *vty,
 	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE) {
 		struct protoent *p;
 		p = getprotobynumber(pbrms->match_proto_id);
-		vty_out(vty, "        Match Protocol %u\n", p->p_name);
+		if (p) {
+			vty_out(vty, "        Match Protocol %s\n", p->p_name);
+		} else {
+			// if lookup failed, just print number
+			vty_out(vty, "        Match Protocol %u\n", pbrms->match_proto_id);
+		}
 	}
 	if (pbrms->src)
 		vty_out(vty, "        Match SRC IP %pFX\n", pbrms->src);

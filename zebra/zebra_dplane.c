@@ -1809,6 +1809,20 @@ uint8_t dplane_ctx_rule_get_old_dsfield(const struct zebra_dplane_ctx *ctx)
 	return ctx->u.rule.old.filter_dsfield;
 }
 
+uint8_t dplane_ctx_rule_get_protocol(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.new.filter_proto_id;
+}
+
+uint8_t dplane_ctx_rule_get_old_protocol(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.old.filter_proto_id;
+}
+
 const struct prefix *
 dplane_ctx_rule_get_src_ip(const struct zebra_dplane_ctx *ctx)
 {
