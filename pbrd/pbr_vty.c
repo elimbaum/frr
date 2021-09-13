@@ -229,14 +229,31 @@ DEFPY(pbr_map_action_tcp_dst_port, pbr_map_action_tcp_dst_port_cmd,
 }
 
 DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
-      "[no] match protocol <(0-255)$proto_id>",
+      "[no] match protocol [<(0-255)$proto_id>|NAME$proto_name]",
       NO_STR
       "match the rest of the command\n"
       "match based on protocol id\n"
-      "a valid value in range 0..255 \n")
+      "a valid value in range 0..255\n"
+	  "an ip protocol name\n")
 {
 	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
         if(pbrms){
+		
+		// either user provided a proto_id or proto_name. If proto_name, 
+		// convert to proto_id:
+		if (proto_name) {
+			struct protoent *p;
+			p = getprotobyname(proto_name);
+			if (!p) {
+				vty_out(vty, "Unable to convert %s to proto id\n",
+							proto_name);
+				return CMD_WARNING;
+			}
+
+			proto_id = p->p_proto;
+		}
+		
+		// at this point proto_id is valid
 		if(!no){
 			pbr_set_match_clause_for_proto_id(pbrms, proto_id);
 		}else {
