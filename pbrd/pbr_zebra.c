@@ -242,10 +242,8 @@ static int rule_notify_owner(ZAPI_CALLBACK_ARGS)
 		pbrms->installed &= ~installed;
 		break;
 	}
-#if 0
-	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %",  __func__,
+	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %d",  __func__,
 	       zapi_rule_notify_owner2str(note), pbrms->installed);
-#endif
 	pbr_map_final_interface_deletion(pbrms->parent, pmi);
 
 	return 0;
@@ -523,6 +521,7 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct interface *ifp)
 {
 	unsigned char family;
+	char buf[PREFIX2STR_BUFFER];
 
 	family = AF_INET;
 	if (pbrms->family)
@@ -535,12 +534,42 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* src and dest IP addresses */
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_src, family);
+	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_dst, family);
+
+	/* protocol id */
+	stream_putl(s, pbrms->match_proto_id);
+
+	/* udp ports */
+	stream_putl(s, pbrms->match_udp_src_port);
+	stream_putl(s, pbrms->match_udp_dst_port);
+	stream_putl(s, pbrms->action_udp_src_port);
+	stream_putl(s, pbrms->action_udp_dst_port);
+
+	/* tcp ports */
+	stream_putl(s, pbrms->match_tcp_src_port);
+	stream_putl(s, pbrms->match_tcp_dst_port);
+	stream_putl(s, pbrms->action_tcp_src_port);
+	stream_putl(s, pbrms->action_tcp_dst_port);
 
 	/* dsfield & ecn */
 	stream_putc(s, pbrms->match_dsfield);
+	stream_putc(s, pbrms->action_dsfield);
 
 	/* mark */
 	stream_putl(s, pbrms->mark);
+
+	/* pcp */
+	stream_putc(s,pbrms->match_pcp);
+	stream_putc(s,pbrms->action_pcp);
+
+	/* Queue ID */
+	stream_putc(s, pbrms->action_queue_id);
+
+	stream_putw(s, pbrms->match_vlan_id);
+	stream_putw(s, pbrms->set_vlan_id);
+	stream_putw(s, pbrms->match_vlan_flags);
+	stream_putw(s, pbrms->action_vlan_flags);
 
 	/* if the user does not use the command "set vrf name |unchanged"
 	 * then pbr_encode_pbr_map_sequence_vrf will not be called
@@ -554,6 +583,14 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	else if (pbrms->nhg)
 		stream_putl(s, pbr_nht_get_table(pbrms->internal_nhg_name));
 
+	/* get the nexthop information */
+	stream_putc(s,family);
+	stream_putl(s,pbrms->nh_vrf_id);
+	stream_putl(s,pbrms->nh_ifindex);
+	stream_putl(s,pbrms->nh_type);
+	stream_put(s, &(pbrms->nh_addr.ipv4.s_addr), IPV4_MAX_BYTELEN);
+
+
 	/* this is the interface to which the policy is bound */
 	stream_putl(s, ifp->vrf_id);
 	stream_putl(s, ifp->ifindex);
@@ -564,6 +601,22 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	zlog_debug("pbrms->seq                       = %u ", pbrms->seqno);
 	zlog_debug("pbrms->ruleno                    = %u ", pbrms->ruleno);
 	zlog_debug("pbrms->unique                    = %u ", pbrms->unique);
+
+	zlog_debug("Match Clauses:");
+	zlog_debug("==============");
+	if(pbrms->src){
+		zlog_debug("pbrms->filter.src_ip             = %s ",
+			  prefix2str(pbrms->src, buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->filter.src_ip     = Not configured ");
+	}
+
+	if(pbrms->dst) {
+		zlog_debug("pbrms->filter.dst_ip             = %s ",
+			  prefix2str(pbrms->dst,buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->filter.dst_ip     = Not configured");
+	}
 
 	zlog_debug("pbrms->filter.proto_id           = %u ", pbrms->match_proto_id);
 	zlog_debug("pbrms->filter.udp_src_port       = %u ", pbrms->match_udp_src_port);
@@ -576,6 +629,21 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	zlog_debug("pbrms->filter.pcp                = %u ", (pbrms->match_pcp &0x07));
 	zlog_debug("pbrms->filter.vlan_id            = %u ", pbrms->match_vlan_id);
 	zlog_debug("pbrms->filter.vlan_flags         = %u ", pbrms->match_vlan_flags);
+
+	zlog_debug("Set Clauses:");
+	zlog_debug("==============");
+	if(pbrms->action_src){
+		zlog_debug("pbrms->action.src_ip.family      = %s ",
+			  prefix2str(pbrms->action_src, buf, sizeof(buf)));
+	}else{
+		zlog_debug("pbrms->action.src_ip             = Not configured");
+	}
+	if(pbrms->action_dst){
+		zlog_debug("pbrms->action.dst_ip.family      = %s ",
+			  prefix2str(pbrms->action_dst, buf, sizeof(buf)));
+	}else {
+		zlog_debug("pbrms->action.dst_ip             = Not configured");
+	}
 
 	zlog_debug("pbrms->action.udp_src_port       = %u ", pbrms->action_udp_src_port);
 	zlog_debug("pbrms->action.udp_dst_port       = %u ", pbrms->action_udp_dst_port);
@@ -591,6 +659,8 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	zlog_debug("pbrms->nh_vrf_id                 = %u ", pbrms->nh_vrf_id);
 	zlog_debug("pbrms->nh_ifindex                = %u ", pbrms->nh_ifindex);
 	zlog_debug("pbrms->nh_type                   = %u ", pbrms->nh_type);
+	zlog_debug("pbrms->nh_ipv4_addr              = %s ",
+		  inet_ntop(AF_INET, &pbrms->nh_addr.ipv4, buf, sizeof(buf)));
 
 	zlog_debug("pbrms->bound_intf_vrf_id         = %u ", ifp->vrf_id );
 	zlog_debug("pbrms->bound_ifname              = %s ", ifp->name);
