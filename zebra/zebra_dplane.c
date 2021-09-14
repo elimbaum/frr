@@ -4465,19 +4465,6 @@ static bool dplane_work_pending(void)
 
 		if (ctx != NULL)
 			break;
-#if defined(HAVE_BASEBOX)
-		/* if I am here, the provider has nothing to do
-		 * on the ctx_in_q and ctx_out_q. Then if grpc
-		 * provider, remove connection retry timer thread
-		 * if scheduled.
-		 */
-		if(prov->basebox_connection == NULL){
-			if(prov->ptr_to_timer_thread){
-				thread_cancel(&(prov->ptr_to_timer_thread));
-				prov->ptr_to_timer_thread = NULL;
-			}
-		}
-#endif /* HAVE_BASEBOX */
 
 		DPLANE_LOCK();
 		prov = TAILQ_NEXT(prov, dp_prov_link);
