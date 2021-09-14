@@ -3065,17 +3065,20 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		}
 
 		/* src_port and dst_port were set to 0 in pbr's original code*/
-                if (zpr.rule.filter.src_port)
+		if (zpr.rule.filter.src_port)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_PORT;
 
-                if (zpr.rule.filter.dst_port)
+		if (zpr.rule.filter.dst_port)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DST_PORT;
 
-                if (zpr.rule.filter.dsfield)
+		if (zpr.rule.filter.dsfield)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DSFIELD;
 
 		if (zpr.rule.filter.fwmark)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_FWMARK;
+
+		if (zpr.rule.filter.proto_id)
+			zpr.rule.filter.filter_bm |= PBR_FILTER_PROTO;
 
 		if (!(zpr.rule.filter.src_ip.family == AF_INET
 		      || zpr.rule.filter.src_ip.family == AF_INET6)) {
