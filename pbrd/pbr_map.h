@@ -58,11 +58,7 @@ RB_HEAD(pbr_map_entry_head, pbr_map);
 RB_PROTOTYPE(pbr_map_entry_head, pbr_map, pbr_map_entry, pbr_map_compare)
 
 struct pbr_map_interface {
-#if defined(HAVE_BASEBOX)
-	uint64_t install_bit;
-#else
 	uint32_t install_bit;
-#endif /*HAVE_BASEBOX*/
 
 	struct interface *ifp;
 

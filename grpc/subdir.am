@@ -11,8 +11,6 @@ nodist_grpc_libfrrgrpc_pb_la_SOURCES = \
 	grpc/frr-northbound.grpc.pb.cc \
 	grpc/pbr.pb.cc \
 	grpc/pbr.grpc.pb.cc \
-	grpc/zebra_grpc_provider.cc \
-	grpc/zebra_grpc_provider.h \
 	# end
 endif
 
