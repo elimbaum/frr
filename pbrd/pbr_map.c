@@ -131,12 +131,12 @@ void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
 	}
 }
 
-void pbr_set_match_clause_for_proto_id(struct pbr_map_sequence *pbrms,
-				       uint32_t proto_id)
+void pbr_set_match_clause_for_ip_proto(struct pbr_map_sequence *pbrms,
+				       uint32_t ip_proto)
 {
 	if (pbrms) {
-		pbrms->match_proto_id    = proto_id;
-		zlog_info("setting pbrms->match_proto_id = %u ",pbrms->match_proto_id);
+		pbrms->match_ip_proto    = ip_proto;
+		zlog_info("setting pbrms->match_ip_proto = %u ",pbrms->match_ip_proto);
 
 		pbr_map_check(pbrms, true);
 	}
@@ -817,7 +817,7 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->match_vlan_flags  = 0;
 		pbrms->action_vlan_flags = 0;
 
-		pbrms->match_proto_id  = PBR_UNDEFINED_VALUE;
+		pbrms->match_ip_proto  = PBR_UNDEFINED_VALUE;
 
 		pbrms->match_pcp  = 0;
 		pbrms->action_pcp = 0;
@@ -906,7 +906,7 @@ static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 	    !pbrms->action_pcp            &&
 	    !pbrms->mark                  &&
 	    pbrms->action_queue_id == 255 &&
-	    pbrms->match_proto_id      == PBR_UNDEFINED_VALUE &&
+	    pbrms->match_ip_proto      == PBR_UNDEFINED_VALUE &&
 	    pbrms->match_udp_src_port  == PBR_UNDEFINED_VALUE &&
 	    pbrms->action_udp_src_port == PBR_UNDEFINED_VALUE &&
 	    pbrms->match_udp_dst_port  == PBR_UNDEFINED_VALUE &&

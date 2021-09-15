@@ -65,7 +65,7 @@ struct pbr_filter {
 	uint32_t udp_dst_port;
 	uint32_t tcp_src_port;
 	uint32_t tcp_dst_port;
-	uint32_t proto_id;
+	uint32_t ip_proto;
 	uint8_t  pcp;
 	uint16_t vlan_id;
 	uint16_t vlan_flags;

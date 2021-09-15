@@ -2964,7 +2964,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 			   prefix_blen(&zpr.rule.action.dst_ip));
 
 
-		STREAM_GETL(s, zpr.rule.filter.proto_id);
+		STREAM_GETL(s, zpr.rule.filter.ip_proto);
 
 		STREAM_GETL(s, zpr.rule.filter.udp_src_port);
 		STREAM_GETL(s, zpr.rule.filter.udp_dst_port);
@@ -3004,11 +3004,11 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		zlog_debug("zpr.rule.unique                    = %u ", zpr.rule.unique);
 		zlog_debug("Match Clauses:");
 		zlog_debug("==============");
-		zlog_debug("zpr.rule.filter.src_ip.            = %s ",
+		zlog_debug("zpr.rule.filter.src_ip             = %s ",
 			  prefix2str(&zpr.rule.filter.src_ip, buf, sizeof(buf)));
 		zlog_debug("zpr.rule.filter.dst_ip             = %s ",
 			  prefix2str(&zpr.rule.filter.dst_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.filter.proto_id           = %u ", zpr.rule.filter.proto_id);
+		zlog_debug("zpr.rule.filter.ip_proto           = %u ", zpr.rule.filter.ip_proto);
 		zlog_debug("zpr.rule.filter.udp_src_port       = %u ", zpr.rule.filter.udp_src_port);
 		zlog_debug("zpr.rule.filter.udp_dst_port       = %u ", zpr.rule.filter.udp_dst_port);
 		zlog_debug("zpr.rule.filter.tcp_src_port       = %u ", zpr.rule.filter.tcp_src_port);
@@ -3077,7 +3077,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		if (zpr.rule.filter.fwmark)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_FWMARK;
 
-		if (zpr.rule.filter.proto_id)
+		if (zpr.rule.filter.ip_proto)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_PROTO;
 
 		if (!(zpr.rule.filter.src_ip.family == AF_INET

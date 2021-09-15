@@ -229,7 +229,7 @@ DEFPY(pbr_map_action_tcp_dst_port, pbr_map_action_tcp_dst_port_cmd,
 }
 
 DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
-      "[no] match protocol [<(0-255)$proto_id>|NAME$proto_name]",
+      "[no] match protocol [<(0-255)$ip_proto>|NAME$proto_name]",
       NO_STR
       "match the rest of the command\n"
       "match based on protocol id\n"
@@ -239,8 +239,8 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
         if(pbrms){
 		
-		// either user provided a proto_id or proto_name. If proto_name, 
-		// convert to proto_id:
+		// either user provided a protocol numeric id or name. If name, convert
+		// to numeric id.
 		if (proto_name) {
 			struct protoent *p;
 			p = getprotobyname(proto_name);
@@ -265,17 +265,17 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 				// if a match, fall through
 			}
 
-			proto_id = p->p_proto;
+			ip_proto = p->p_proto;
 		}
 
-		// at this point proto_id is valid
+		// at this point ip_proto is valid
 		if(!no){
-			pbr_set_match_clause_for_proto_id(pbrms, proto_id);
+			pbr_set_match_clause_for_ip_proto(pbrms, ip_proto);
 		}else {
 			/* if the user previously set a protocol id */
-			if(pbrms->match_proto_id != PBR_UNDEFINED_VALUE){
-				if(proto_id == pbrms->match_proto_id){
-						pbr_set_match_clause_for_proto_id(pbrms,
+			if(pbrms->match_ip_proto != PBR_UNDEFINED_VALUE){
+				if(ip_proto == pbrms->match_ip_proto){
+						pbr_set_match_clause_for_ip_proto(pbrms,
 										  PBR_UNDEFINED_VALUE);
 				}
 			}
@@ -1214,14 +1214,14 @@ static void vty_show_pbrms(struct vty *vty,
 		vty_out(vty, "        Match PCP %d\n",
 			pbrms->match_pcp);
 
-	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE) {
+	if (pbrms->match_ip_proto != PBR_UNDEFINED_VALUE) {
 		struct protoent *p;
-		p = getprotobynumber(pbrms->match_proto_id);
+		p = getprotobynumber(pbrms->match_ip_proto);
 		if (p) {
 			vty_out(vty, "        Match Protocol %s\n", p->p_name);
 		} else {
 			// if lookup failed, just print number
-			vty_out(vty, "        Match Protocol %u\n", pbrms->match_proto_id);
+			vty_out(vty, "        Match Protocol %u\n", pbrms->match_ip_proto);
 		}
 	}
 	if (pbrms->src)
@@ -1691,8 +1691,8 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 	if (pbrms->match_pcp != 0)
 		vty_out(vty, " match pcp %d\n", pbrms->match_pcp);
 
-	if (pbrms->match_proto_id != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match protocol %d\n", pbrms->match_proto_id);
+	if (pbrms->match_ip_proto != PBR_UNDEFINED_VALUE)
+		vty_out(vty, " match protocol %d\n", pbrms->match_ip_proto);
 
 	if (pbrms->src)
 		vty_out(vty, " match src-ip %pFX\n", pbrms->src);

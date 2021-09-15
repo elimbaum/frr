@@ -515,7 +515,6 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
 
-// ELITODO: need to add new fields to the stream, and load them off at the other end.
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)
@@ -538,7 +537,7 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_dst, family);
 
 	/* protocol id */
-	stream_putl(s, pbrms->match_proto_id);
+	stream_putl(s, pbrms->match_ip_proto);
 
 	/* udp ports */
 	stream_putl(s, pbrms->match_udp_src_port);
@@ -618,7 +617,7 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 		zlog_debug("pbrms->filter.dst_ip     = Not configured");
 	}
 
-	zlog_debug("pbrms->filter.proto_id           = %u ", pbrms->match_proto_id);
+	zlog_debug("pbrms->filter.ip_proto           = %u ", pbrms->match_ip_proto);
 	zlog_debug("pbrms->filter.udp_src_port       = %u ", pbrms->match_udp_src_port);
 	zlog_debug("pbrms->filter.udp_dst_port       = %u ", pbrms->match_udp_dst_port);
 	zlog_debug("pbrms->filter.tcp_src_port       = %u ", pbrms->match_tcp_src_port);
