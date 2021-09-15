@@ -242,7 +242,7 @@ static int rule_notify_owner(ZAPI_CALLBACK_ARGS)
 		pbrms->installed &= ~installed;
 		break;
 	}
-	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %d",  __func__,
+	DEBUGD(&pbr_dbg_zebra, "%s: Received %s: %lld",  __func__,
 	       zapi_rule_notify_owner2str(note), pbrms->installed);
 	pbr_map_final_interface_deletion(pbrms->parent, pmi);
 

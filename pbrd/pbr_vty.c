@@ -254,7 +254,7 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 				zlog_debug("trying lowercased protocol: %s", lower_proto);
 
 				p = getprotobyname(lower_proto);
-				// free(lower_proto);
+				free(lower_proto);
 
 				// still nothing?
 				if (!p) {
