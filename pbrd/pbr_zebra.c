@@ -677,6 +677,9 @@ bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 	uint64_t is_installed = (uint64_t)1 << pmi->install_bit;
 	is_installed &= pbrms->installed;
 
+	DEBUGD(&pbr_dbg_zebra, "%s: for %s %d(%" PRIu64 ")", __func__,
+	       pbrm->name, install, is_installed);
+
 	/*
 	 * If we are installed and asked to do so again and the config
 	 * has not changed, just return.
