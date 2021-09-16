@@ -595,76 +595,76 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	stream_putl(s, ifp->ifindex);
 	stream_put(s, ifp->name, INTERFACE_NAMSIZ);
 
-	zlog_debug("Pbrd Daemon Sending to Zebra");
-	zlog_debug("===========================================");
-	zlog_debug("pbrms->seq                       = %u ", pbrms->seqno);
-	zlog_debug("pbrms->ruleno                    = %u ", pbrms->ruleno);
-	zlog_debug("pbrms->unique                    = %u ", pbrms->unique);
+	// zlog_debug("Pbrd Daemon Sending to Zebra");
+	// zlog_debug("===========================================");
+	// zlog_debug("pbrms->seq                       = %u ", pbrms->seqno);
+	// zlog_debug("pbrms->ruleno                    = %u ", pbrms->ruleno);
+	// zlog_debug("pbrms->unique                    = %u ", pbrms->unique);
 
-	zlog_debug("Match Clauses:");
-	zlog_debug("==============");
-	if(pbrms->src){
-		zlog_debug("pbrms->filter.src_ip             = %s ",
-			  prefix2str(pbrms->src, buf, sizeof(buf)));
-	}else {
-		zlog_debug("pbrms->filter.src_ip     = Not configured ");
-	}
+	// zlog_debug("Match Clauses:");
+	// zlog_debug("==============");
+	// if(pbrms->src){
+	// 	zlog_debug("pbrms->filter.src_ip             = %s ",
+	// 		  prefix2str(pbrms->src, buf, sizeof(buf)));
+	// }else {
+	// 	zlog_debug("pbrms->filter.src_ip     = Not configured ");
+	// }
 
-	if(pbrms->dst) {
-		zlog_debug("pbrms->filter.dst_ip             = %s ",
-			  prefix2str(pbrms->dst,buf, sizeof(buf)));
-	}else {
-		zlog_debug("pbrms->filter.dst_ip     = Not configured");
-	}
+	// if(pbrms->dst) {
+	// 	zlog_debug("pbrms->filter.dst_ip             = %s ",
+	// 		  prefix2str(pbrms->dst,buf, sizeof(buf)));
+	// }else {
+	// 	zlog_debug("pbrms->filter.dst_ip     = Not configured");
+	// }
 
-	zlog_debug("pbrms->filter.ip_proto           = %u ", pbrms->match_ip_proto);
-	zlog_debug("pbrms->filter.udp_src_port       = %u ", pbrms->match_udp_src_port);
-	zlog_debug("pbrms->filter.udp_dst_port       = %u ", pbrms->match_udp_dst_port);
-	zlog_debug("pbrms->filter.tcp_src_port       = %u ", pbrms->match_tcp_src_port);
-	zlog_debug("pbrms->filter.tcp_dst_port       = %u ", pbrms->match_tcp_dst_port);
-	zlog_debug("pbrms->filter.dsfield dscp       = %u ", (pbrms->match_dsfield &0xFC)>> 2);
-	zlog_debug("pbrms->filter.dsfield ecn        = %u ", (pbrms->match_dsfield &0x03));
-	zlog_debug("pbrms->filter.mark               = %u ", pbrms->mark);
-	zlog_debug("pbrms->filter.pcp                = %u ", (pbrms->match_pcp &0x07));
-	zlog_debug("pbrms->filter.vlan_id            = %u ", pbrms->match_vlan_id);
-	zlog_debug("pbrms->filter.vlan_flags         = %u ", pbrms->match_vlan_flags);
+	// zlog_debug("pbrms->filter.ip_proto           = %u ", pbrms->match_ip_proto);
+	// zlog_debug("pbrms->filter.udp_src_port       = %u ", pbrms->match_udp_src_port);
+	// zlog_debug("pbrms->filter.udp_dst_port       = %u ", pbrms->match_udp_dst_port);
+	// zlog_debug("pbrms->filter.tcp_src_port       = %u ", pbrms->match_tcp_src_port);
+	// zlog_debug("pbrms->filter.tcp_dst_port       = %u ", pbrms->match_tcp_dst_port);
+	// zlog_debug("pbrms->filter.dsfield dscp       = %u ", (pbrms->match_dsfield &0xFC)>> 2);
+	// zlog_debug("pbrms->filter.dsfield ecn        = %u ", (pbrms->match_dsfield &0x03));
+	// zlog_debug("pbrms->filter.mark               = %u ", pbrms->mark);
+	// zlog_debug("pbrms->filter.pcp                = %u ", (pbrms->match_pcp &0x07));
+	// zlog_debug("pbrms->filter.vlan_id            = %u ", pbrms->match_vlan_id);
+	// zlog_debug("pbrms->filter.vlan_flags         = %u ", pbrms->match_vlan_flags);
 
-	zlog_debug("Set Clauses:");
-	zlog_debug("==============");
-	if(pbrms->action_src){
-		zlog_debug("pbrms->action.src_ip.family      = %s ",
-			  prefix2str(pbrms->action_src, buf, sizeof(buf)));
-	}else{
-		zlog_debug("pbrms->action.src_ip             = Not configured");
-	}
-	if(pbrms->action_dst){
-		zlog_debug("pbrms->action.dst_ip.family      = %s ",
-			  prefix2str(pbrms->action_dst, buf, sizeof(buf)));
-	}else {
-		zlog_debug("pbrms->action.dst_ip             = Not configured");
-	}
+	// zlog_debug("Set Clauses:");
+	// zlog_debug("==============");
+	// if(pbrms->action_src){
+	// 	zlog_debug("pbrms->action.src_ip.family      = %s ",
+	// 		  prefix2str(pbrms->action_src, buf, sizeof(buf)));
+	// }else{
+	// 	zlog_debug("pbrms->action.src_ip             = Not configured");
+	// }
+	// if(pbrms->action_dst){
+	// 	zlog_debug("pbrms->action.dst_ip.family      = %s ",
+	// 		  prefix2str(pbrms->action_dst, buf, sizeof(buf)));
+	// }else {
+	// 	zlog_debug("pbrms->action.dst_ip             = Not configured");
+	// }
 
-	zlog_debug("pbrms->action.udp_src_port       = %u ", pbrms->action_udp_src_port);
-	zlog_debug("pbrms->action.udp_dst_port       = %u ", pbrms->action_udp_dst_port);
-	zlog_debug("pbrms->action.tcp_src_port       = %u ", pbrms->action_tcp_src_port);
-	zlog_debug("pbrms->action.tcp_dst_port       = %u ", pbrms->action_tcp_dst_port);
-	zlog_debug("pbrms->action.dsfield dscp       = %u ", (pbrms->action_dsfield &0xFC)>> 2);
-	zlog_debug("pbrms->action.dsfield ecn        = %u ", (pbrms->action_dsfield &0x03));
-	zlog_debug("pbrms->action.pcp                = %u ", (pbrms->action_pcp &0x07));
-	zlog_debug("pbrms->action.queue_id           = %u ", pbrms->action_queue_id);
-	zlog_debug("pbrms->action.vlan_id            = %u ", pbrms->set_vlan_id);
-	zlog_debug("pbrms->action.vlan_flags         = %u ", pbrms->action_vlan_flags);
-	zlog_debug("nhop family                      = %u ", family);
-	zlog_debug("pbrms->nh_vrf_id                 = %u ", pbrms->nh_vrf_id);
-	zlog_debug("pbrms->nh_ifindex                = %u ", pbrms->nh_ifindex);
-	zlog_debug("pbrms->nh_type                   = %u ", pbrms->nh_type);
-	zlog_debug("pbrms->nh_ipv4_addr              = %s ",
-		  inet_ntop(AF_INET, &pbrms->nh_addr.ipv4, buf, sizeof(buf)));
+	// zlog_debug("pbrms->action.udp_src_port       = %u ", pbrms->action_udp_src_port);
+	// zlog_debug("pbrms->action.udp_dst_port       = %u ", pbrms->action_udp_dst_port);
+	// zlog_debug("pbrms->action.tcp_src_port       = %u ", pbrms->action_tcp_src_port);
+	// zlog_debug("pbrms->action.tcp_dst_port       = %u ", pbrms->action_tcp_dst_port);
+	// zlog_debug("pbrms->action.dsfield dscp       = %u ", (pbrms->action_dsfield &0xFC)>> 2);
+	// zlog_debug("pbrms->action.dsfield ecn        = %u ", (pbrms->action_dsfield &0x03));
+	// zlog_debug("pbrms->action.pcp                = %u ", (pbrms->action_pcp &0x07));
+	// zlog_debug("pbrms->action.queue_id           = %u ", pbrms->action_queue_id);
+	// zlog_debug("pbrms->action.vlan_id            = %u ", pbrms->set_vlan_id);
+	// zlog_debug("pbrms->action.vlan_flags         = %u ", pbrms->action_vlan_flags);
+	// zlog_debug("nhop family                      = %u ", family);
+	// zlog_debug("pbrms->nh_vrf_id                 = %u ", pbrms->nh_vrf_id);
+	// zlog_debug("pbrms->nh_ifindex                = %u ", pbrms->nh_ifindex);
+	// zlog_debug("pbrms->nh_type                   = %u ", pbrms->nh_type);
+	// zlog_debug("pbrms->nh_ipv4_addr              = %s ",
+	// 	  inet_ntop(AF_INET, &pbrms->nh_addr.ipv4, buf, sizeof(buf)));
 
-	zlog_debug("pbrms->bound_intf_vrf_id         = %u ", ifp->vrf_id );
-	zlog_debug("pbrms->bound_ifname              = %s ", ifp->name);
-	zlog_debug("pbrms->bound_ifindex             = %u ", ifp->ifindex);
-	zlog_debug("\n\n");
+	// zlog_debug("pbrms->bound_intf_vrf_id         = %u ", ifp->vrf_id );
+	// zlog_debug("pbrms->bound_ifname              = %s ", ifp->name);
+	// zlog_debug("pbrms->bound_ifindex             = %u ", ifp->ifindex);
+	// zlog_debug("\n\n");
 }
 
 
