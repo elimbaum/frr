@@ -114,15 +114,15 @@ struct pbr_map_sequence {
 #define PBR_UNDEFINED_VALUE    0xffffffff
 #define PBR_UNDEFINED_QUEUE_ID 0xff
 
-	uint32_t match_proto_id;
+	uint32_t match_ip_proto;
 	uint32_t match_udp_src_port;
 	uint32_t match_udp_dst_port;
 	uint32_t action_udp_src_port;
 	uint32_t action_udp_dst_port;
 	uint32_t match_tcp_src_port;
-        uint32_t match_tcp_dst_port;
+	uint32_t match_tcp_dst_port;
 	uint32_t action_tcp_src_port;
-        uint32_t action_tcp_dst_port;
+	uint32_t action_tcp_dst_port;
 	uint8_t  action_dsfield;
 	uint8_t  match_pcp;
 	uint8_t  action_pcp;
@@ -286,8 +286,8 @@ extern void pbr_set_action_clause_for_ecn(struct pbr_map_sequence *pbrms,
 					  uint8_t ecn_value);
 extern void pbr_reset_action_clause_for_ecn(struct pbr_map_sequence *pbrms);
 
-extern void pbr_set_match_clause_for_proto_id(struct pbr_map_sequence *pbrms,
-					      uint32_t proto_id);
+extern void pbr_set_match_clause_for_ip_proto(struct pbr_map_sequence *pbrms,
+					      uint32_t ip_proto);
 extern void pbr_set_match_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
 						  uint32_t udp_port);
 extern void pbr_set_match_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,

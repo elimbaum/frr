@@ -3120,7 +3120,8 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 	struct stream *s;
 	uint32_t total, i;
 	char ifname[INTERFACE_NAMSIZ + 1] = {};
-        char buf[PREFIX2STR_BUFFER];
+
+	char buf[PREFIX2STR_BUFFER];
 
 	s = msg;
 	STREAM_GETL(s, total);
@@ -3155,10 +3156,8 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		STREAM_GET(&zpr.rule.action.dst_ip.u.prefix, s,
 			   prefix_blen(&zpr.rule.action.dst_ip));
 
-		STREAM_GETL(s, zpr.rule.filter.proto_id);
-
-		STREAM_GETL(s, zpr.rule.filter.src_port);
-		STREAM_GETL(s, zpr.rule.filter.dst_port);
+		STREAM_GETW(s, zpr.rule.filter.src_port);
+		STREAM_GETW(s, zpr.rule.filter.dst_port);
 
 		STREAM_GETL(s, zpr.rule.action.udp_src_port);
 		STREAM_GETL(s, zpr.rule.action.udp_dst_port);
@@ -3194,6 +3193,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		strlcpy(zpr.rule.ifname, ifname,
 			sizeof(zpr.rule.ifname));
 
+		/*
 		zlog_debug("Zebra Daemon Received from Pbrd");
 		zlog_debug("===========================================");
 		zlog_debug("zpr.rule.seq                       = %u ", zpr.rule.seq);
@@ -3201,15 +3201,13 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		zlog_debug("zpr.rule.unique                    = %u ", zpr.rule.unique);
 		zlog_debug("Match Clauses:");
 		zlog_debug("==============");
-		zlog_debug("zpr.rule.filter.src_ip.            = %s ",
+		zlog_debug("zpr.rule.filter.src_ip             = %s ",
 			  prefix2str(&zpr.rule.filter.src_ip, buf, sizeof(buf)));
 		zlog_debug("zpr.rule.filter.dst_ip             = %s ",
 			  prefix2str(&zpr.rule.filter.dst_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.filter.proto_id           = %u ", zpr.rule.filter.proto_id);
-		zlog_debug("zpr.rule.filter.udp_src_port       = %u ", zpr.rule.filter.udp_src_port);
-		zlog_debug("zpr.rule.filter.udp_dst_port       = %u ", zpr.rule.filter.udp_dst_port);
-		zlog_debug("zpr.rule.filter.tcp_src_port       = %u ", zpr.rule.filter.tcp_src_port);
-		zlog_debug("zpr.rule.filter.tcp_dst_port       = %u ", zpr.rule.filter.tcp_dst_port);
+		zlog_debug("zpr.rule.filter.ip_proto           = %u ", zpr.rule.filter.ip_proto);
+		zlog_debug("zpr.rule.filter.src_port           = %u ", zpr.rule.filter.src_port);
+		zlog_debug("zpr.rule.filter.dst_port           = %u ", zpr.rule.filter.dst_port);
 		zlog_debug("zpr.rule.filter.dsfield dscp       = %u ", (zpr.rule.filter.dsfield &0xFC)>> 2);
 		zlog_debug("zpr.rule.filter.dsfield ecn        = %u ", (zpr.rule.filter.dsfield &0x03));
 		zlog_debug("zpr.rule.filter.mark               = %u ", zpr.rule.filter.fwmark);
@@ -3243,32 +3241,30 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		zlog_debug("zpr.rule.bound_intf_ifindex        = %u ", zpr.rule.bound_intf_ifindex);
 		zlog_debug("zpr.rule.ifname                    = %s ", zpr.rule.ifname);
 		zlog_debug("\n\n");
+		*/
 
-                if (!is_default_prefix(&zpr.rule.filter.src_ip))
+        if (!is_default_prefix(&zpr.rule.filter.src_ip))
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_IP;
 
 		if (!is_default_prefix(&zpr.rule.filter.dst_ip))
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DST_IP;
 
-		if(zpr.rule.filter.udp_src_port != 0xFFFFFFFF){
-			zpr.rule.filter.src_port = (uint16_t)zpr.rule.filter.udp_src_port;
-		}else if(zpr.rule.filter.tcp_src_port != 0xFFFFFFFF){
-			zpr.rule.filter.src_port = (uint16_t)zpr.rule.filter.tcp_src_port;
+		if (zpr.rule.filter.src_port){
+			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_PORT;
 		}
-		if(zpr.rule.filter.udp_dst_port != 0xFFFFFFFF){
-			zpr.rule.filter.dst_port = (uint16_t)zpr.rule.filter.udp_dst_port;
-		}else if(zpr.rule.filter.tcp_dst_port != 0xFFFFFFFF){
-			zpr.rule.filter.dst_port = (uint16_t)zpr.rule.filter.tcp_dst_port;
+
+		if (zpr.rule.filter.dst_port){
+			zpr.rule.filter.filter_bm |= PBR_FILTER_DST_PORT;
 		}
 
 		/* src_port and dst_port were set to 0 in pbr's original code*/
-                if (zpr.rule.filter.src_port)
+		if (zpr.rule.filter.src_port)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_PORT;
 
-                if (zpr.rule.filter.dst_port)
+		if (zpr.rule.filter.dst_port)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DST_PORT;
 
-                if (zpr.rule.filter.dsfield)
+		if (zpr.rule.filter.dsfield)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DSFIELD;
 
 		if (zpr.rule.filter.ip_proto)
@@ -3276,6 +3272,9 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 
 		if (zpr.rule.filter.fwmark)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_FWMARK;
+
+		if (zpr.rule.filter.ip_proto)
+			zpr.rule.filter.filter_bm |= PBR_FILTER_IP_PROTOCOL;
 
 		if (!(zpr.rule.filter.src_ip.family == AF_INET
 		      || zpr.rule.filter.src_ip.family == AF_INET6)) {
@@ -3377,7 +3376,7 @@ static inline void zread_ipset_entry(ZAPI_HANDLER_ARGS)
 		if (zpi.src_port_max != 0)
 			zpi.filter_bm |= PBR_FILTER_SRC_PORT_RANGE;
 		if (zpi.proto != 0)
-			zpi.filter_bm |= PBR_FILTER_PROTO;
+			zpi.filter_bm |= PBR_FILTER_IP_PROTOCOL;
 
 		if (!(zpi.dst.family == AF_INET
 		      || zpi.dst.family == AF_INET6)) {

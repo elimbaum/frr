@@ -216,8 +216,10 @@ bool zebra_pbr_rules_hash_equal(const void *arg1, const void *arg2)
 
 	if (strcmp(r1->rule.ifname, r2->rule.ifname) != 0)
 		return false;
+
 	if (r1->vrf_id != r2->vrf_id)
 		return false;
+
 	return true;
 }
 
@@ -964,7 +966,7 @@ static void zebra_pbr_display_port(struct vty *vty, uint32_t filter_bm,
 			    uint16_t port_min, uint16_t port_max,
 			    uint8_t proto)
 {
-	if (!(filter_bm & PBR_FILTER_PROTO)) {
+	if (!(filter_bm & PBR_FILTER_IP_PROTOCOL)) {
 		if (port_max)
 			vty_out(vty, ":udp/tcp:%d-%d",
 				port_min, port_max);
