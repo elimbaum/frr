@@ -3279,7 +3279,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_FWMARK;
 
 		if (zpr.rule.filter.ip_proto)
-			zpr.rule.filter.filter_bm |= PBR_FILTER_IP_PROTO;
+			zpr.rule.filter.filter_bm |= PBR_FILTER_IP_PROTOCOL;
 
 		if (!(zpr.rule.filter.src_ip.family == AF_INET
 		      || zpr.rule.filter.src_ip.family == AF_INET6)) {
@@ -3381,7 +3381,7 @@ static inline void zread_ipset_entry(ZAPI_HANDLER_ARGS)
 		if (zpi.src_port_max != 0)
 			zpi.filter_bm |= PBR_FILTER_SRC_PORT_RANGE;
 		if (zpi.proto != 0)
-			zpi.filter_bm |= PBR_FILTER_IP_PROTO;
+			zpi.filter_bm |= PBR_FILTER_IP_PROTOCOL;
 
 		if (!(zpi.dst.family == AF_INET
 		      || zpi.dst.family == AF_INET6)) {
