@@ -243,10 +243,12 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 		// to numeric id.
 		if (proto_name) {
 			// lowercase it first
-			for (char * s = proto_name; *s; s++) {
+			char * lower_name = strdup(proto_name);
+			for (char * s = lower_name; *s; s++) {
 				*s = tolower(*s);
 			}
-			struct protoent * p = getprotobyname(proto_name);
+			struct protoent * p = getprotobyname(lower_name);
+			free(lower_name);
 			
 			if (!p) {
 				// no match
@@ -1282,7 +1284,7 @@ static void vty_show_pbrms(struct vty *vty,
 	if (pbrms->src)
 		vty_out(vty, "        SRC Match: %pFX\n", pbrms->src);
 	if (pbrms->dst)
-		vty_out(vty, "        Match DST IP %pFX\n", pbrms->dst);
+		vty_out(vty, "        DST Match: %pFX\n", pbrms->dst);
 
 	if (pbrms->match_dsfield & PBR_DSFIELD_ECN)
 		vty_out(vty, "        Match ECN %u\n",
@@ -1304,8 +1306,6 @@ static void vty_show_pbrms(struct vty *vty,
 			vty_out(vty, "        Match Protocol %u\n", pbrms->match_ip_proto);
 		}
 	}
-	if (pbrms->src)
-		vty_out(vty, "        Match SRC IP %pFX\n", pbrms->src);
 
 	if (pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
 		vty_out(vty, "        Match TCP dst port %u\n",
@@ -1773,9 +1773,9 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 		vty_out(vty, " match ip-protocol %s\n", p->p_name);
 	}
 
-	if (pbrms->dsfield & PBR_DSFIELD_DSCP)
+	if (pbrms->match_dsfield & PBR_DSFIELD_DSCP)
 		vty_out(vty, " match dscp %u\n",
-			(pbrms->dsfield & PBR_DSFIELD_DSCP) >> 2);
+			(pbrms->match_dsfield & PBR_DSFIELD_DSCP) >> 2);
 
 	if (pbrms->match_dsfield & PBR_DSFIELD_ECN)
 		vty_out(vty, " match ecn %u\n",

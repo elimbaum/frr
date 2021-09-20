@@ -296,7 +296,6 @@ struct dplane_ctx_rule {
 	char bound_ifname[INTERFACE_NAMSIZ + 1];
 
 	/* Filter criteria */
-	uint32_t filter_bm;
 	uint32_t fwmark;
 	uint8_t dsfield;
 	struct prefix src_ip;
@@ -1995,20 +1994,6 @@ uint8_t dplane_ctx_rule_get_old_dsfield(const struct zebra_dplane_ctx *ctx)
 	return ctx->u.rule.old.filter_dsfield;
 }
 
-uint8_t dplane_ctx_rule_get_protocol(const struct zebra_dplane_ctx *ctx)
-{
-	DPLANE_CTX_VALID(ctx);
-
-	return ctx->u.rule.new.filter_ip_proto;
-}
-
-uint8_t dplane_ctx_rule_get_old_protocol(const struct zebra_dplane_ctx *ctx)
-{
-	DPLANE_CTX_VALID(ctx);
-
-	return ctx->u.rule.old.filter_ip_proto;
-}
-
 const struct prefix *
 dplane_ctx_rule_get_src_ip(const struct zebra_dplane_ctx *ctx)
 {
@@ -2692,6 +2677,7 @@ done:
  * @dplane_rule:	Dataplane internal representation of a rule
  * @rule:			PBR rule
  */
+// ELITODO dplane remove udp/tcp port
 static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 					struct zebra_pbr_rule *rule)
 {
@@ -2702,10 +2688,10 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->filter_bm           = rule->rule.filter.filter_bm;
 	prefix_copy(&(dplane_rule->filter_src_ip), &rule->rule.filter.src_ip);
 	prefix_copy(&(dplane_rule->filter_dst_ip), &rule->rule.filter.dst_ip);
-	dplane_rule->filter_udp_src_port = rule->rule.filter.udp_src_port;
-	dplane_rule->filter_udp_dst_port = rule->rule.filter.udp_dst_port;
-	dplane_rule->filter_tcp_src_port = rule->rule.filter.tcp_src_port;
-	dplane_rule->filter_tcp_dst_port = rule->rule.filter.tcp_dst_port;
+	dplane_rule->filter_udp_src_port = rule->rule.filter.src_port;
+	dplane_rule->filter_udp_dst_port = rule->rule.filter.dst_port;
+	dplane_rule->filter_tcp_src_port = rule->rule.filter.src_port;
+	dplane_rule->filter_tcp_dst_port = rule->rule.filter.dst_port;
 	dplane_rule->filter_ip_proto     = rule->rule.filter.ip_proto;
 	dplane_rule->filter_dsfield      = rule->rule.filter.dsfield;
 	dplane_rule->filter_fwmark       = rule->rule.filter.fwmark;

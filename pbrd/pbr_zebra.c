@@ -523,7 +523,6 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct interface *ifp)
 {
 	unsigned char family;
-	char buf[PREFIX2STR_BUFFER];
 
 	family = AF_INET;
 	if (pbrms->family)
@@ -538,9 +537,6 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_src, family);
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->action_dst, family);
-
-	/* protocol id */
-	stream_putl(s, pbrms->match_ip_proto);
 
 	/* ports */
 	stream_putw(s, pbrms->src_prt);
@@ -558,8 +554,6 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 
 	/* The ip_proto */
 	stream_putc(s, pbrms->ip_proto);
-
-	stream_putc(s, pbrms->dsfield);
 	
 	/* mark */
 	stream_putl(s, pbrms->mark);
