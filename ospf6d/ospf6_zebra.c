@@ -42,7 +42,7 @@
 #include "ospf6_area.h"
 #include "lib/json.h"
 
-DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_DISTANCE, "OSPF6 distance")
+DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_DISTANCE, "OSPF6 distance");
 
 unsigned char conf_debug_ospf6_zebra = 0;
 
@@ -90,19 +90,16 @@ static int ospf6_router_id_update_zebra(ZAPI_CALLBACK_ARGS)
 
 	zebra_router_id_update_read(zclient->ibuf, &router_id);
 
-	om6->zebra_router_id = router_id.u.prefix4.s_addr;
+	if (IS_OSPF6_DEBUG_ZEBRA(RECV))
+		zlog_debug("Zebra router-id update %pI4 vrf %s id %u",
+			   &router_id.u.prefix4, ospf6_vrf_id_to_name(vrf_id),
+			   vrf_id);
+
 	o = ospf6_lookup_by_vrf_id(vrf_id);
 	if (o == NULL)
 		return 0;
 
-	o->router_id_zebra = router_id.u.prefix4;
-	if (IS_OSPF6_DEBUG_ZEBRA(RECV)) {
-		char buf[INET_ADDRSTRLEN];
-
-		zlog_debug("%s: zebra router-id %s update", __func__,
-			   inet_ntop(AF_INET, &router_id.u.prefix4, buf,
-				     INET_ADDRSTRLEN));
-	}
+	o->router_id_zebra = router_id.u.prefix4.s_addr;
 
 	ospf6_router_id_update(o);
 
@@ -182,6 +179,7 @@ static int ospf6_zebra_read_route(ZAPI_CALLBACK_ARGS)
 	unsigned long ifindex;
 	struct in6_addr *nexthop;
 	struct ospf6 *ospf6;
+	struct prefix_ipv6 p;
 
 	ospf6 = ospf6_lookup_by_vrf_id(vrf_id);
 
@@ -208,6 +206,10 @@ static int ospf6_zebra_read_route(ZAPI_CALLBACK_ARGS)
 							     : "delete"),
 			zebra_route_string(api.type), &api.prefix, nexthop,
 			ifindex, api.tag);
+
+	memcpy(&p, &api.prefix, sizeof(p));
+	if (is_default_prefix6(&p))
+		api.type = DEFAULT_ROUTE;
 
 	if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD)
 		ospf6_asbr_redistribute_add(api.type, ifindex, &api.prefix,
@@ -292,7 +294,7 @@ static void ospf6_zebra_route_update(int type, struct ospf6_route *request,
 	struct prefix *dest;
 
 	if (IS_OSPF6_DEBUG_ZEBRA(SEND))
-		zlog_debug("Send %s route: %pFX",
+		zlog_debug("Zebra Send %s route: %pFX",
 			   (type == REM ? "remove" : "add"), &request->prefix);
 
 	if (zclient->sock < 0) {
@@ -343,8 +345,16 @@ static void ospf6_zebra_route_update(int type, struct ospf6_route *request,
 	api.safi = SAFI_UNICAST;
 	api.prefix = *dest;
 	SET_FLAG(api.message, ZAPI_MESSAGE_NEXTHOP);
-	api.nexthop_num = MIN(nhcount, MULTIPATH_NUM);
-	ospf6_route_zebra_copy_nexthops(request, api.nexthops, api.nexthop_num);
+
+	if (nhcount > ospf6->max_multipath) {
+		if (IS_OSPF6_DEBUG_ZEBRA(SEND))
+			zlog_debug(
+				"  Nexthop count is greater than configured maximum-path, hence ignore the extra nexthops");
+	}
+	api.nexthop_num = MIN(nhcount, ospf6->max_multipath);
+
+	ospf6_route_zebra_copy_nexthops(request, api.nexthops, api.nexthop_num,
+					api.vrf_id);
 	SET_FLAG(api.message, ZAPI_MESSAGE_METRIC);
 	api.metric = (request->path.metric_type == 2 ? request->path.u.cost_e2
 						     : request->path.cost);

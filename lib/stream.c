@@ -31,8 +31,8 @@
 #include "frr_pthread.h"
 #include "lib_errors.h"
 
-DEFINE_MTYPE_STATIC(LIB, STREAM, "Stream")
-DEFINE_MTYPE_STATIC(LIB, STREAM_FIFO, "Stream FIFO")
+DEFINE_MTYPE_STATIC(LIB, STREAM, "Stream");
+DEFINE_MTYPE_STATIC(LIB, STREAM_FIFO, "Stream FIFO");
 
 /* Tests whether a position is valid */
 #define GETP_VALID(S, G) ((G) <= (S)->endp)
@@ -57,7 +57,7 @@ DEFINE_MTYPE_STATIC(LIB, STREAM_FIFO, "Stream FIFO")
 #define STREAM_WARN_OFFSETS(S)                                                 \
 	do {                                                                   \
 		flog_warn(EC_LIB_STREAM,				       \
-			  "&(struct stream): %p, size: %lu, getp: %lu, endp: %lu\n", \
+			  "&(struct stream): %p, size: %lu, getp: %lu, endp: %lu", \
 			  (void *)(S), (unsigned long)(S)->size,	       \
 			  (unsigned long)(S)->getp, (unsigned long)(S)->endp); \
 		zlog_backtrace(LOG_WARNING);				       \
@@ -93,7 +93,7 @@ DEFINE_MTYPE_STATIC(LIB, STREAM_FIFO, "Stream FIFO")
 		if (((S)->endp + (Z)) > (S)->size) {                           \
 			flog_warn(                                             \
 				EC_LIB_STREAM,                                 \
-				"CHECK_SIZE: truncating requested size %lu\n", \
+				"CHECK_SIZE: truncating requested size %lu",   \
 				(unsigned long)(Z));                           \
 			STREAM_WARN_OFFSETS(S);                                \
 			(Z) = (S)->size - (S)->endp;                           \
@@ -1097,7 +1097,8 @@ ssize_t stream_read_try(struct stream *s, int fd, size_t size)
 		return -1;
 	}
 
-	if ((nbytes = read(fd, s->data + s->endp, size)) >= 0) {
+	nbytes = read(fd, s->data + s->endp, size);
+	if (nbytes >= 0) {
 		s->endp += nbytes;
 		return nbytes;
 	}
@@ -1126,9 +1127,8 @@ ssize_t stream_recvfrom(struct stream *s, int fd, size_t size, int flags,
 		return -1;
 	}
 
-	if ((nbytes = recvfrom(fd, s->data + s->endp, size, flags, from,
-			       fromlen))
-	    >= 0) {
+	nbytes = recvfrom(fd, s->data + s->endp, size, flags, from, fromlen);
+	if (nbytes >= 0) {
 		s->endp += nbytes;
 		return nbytes;
 	}
@@ -1371,4 +1371,20 @@ void stream_fifo_free(struct stream_fifo *fifo)
 {
 	stream_fifo_deinit(fifo);
 	XFREE(MTYPE_STREAM_FIFO, fifo);
+}
+
+void stream_pulldown(struct stream *s)
+{
+	size_t rlen = STREAM_READABLE(s);
+
+	/* No more data, so just move the pointers. */
+	if (rlen == 0) {
+		stream_reset(s);
+		return;
+	}
+
+	/* Move the available data to the beginning. */
+	memmove(s->data, &s->data[s->getp], rlen);
+	s->getp = 0;
+	s->endp = rlen;
 }

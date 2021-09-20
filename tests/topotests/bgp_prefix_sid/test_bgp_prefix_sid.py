@@ -41,6 +41,8 @@ from lib.topogen import Topogen, TopoRouter, get_topogen
 from lib.topolog import logger
 from mininet.topo import Topo
 
+pytestmark = [pytest.mark.bgpd]
+
 
 class TemplateTopo(Topo):
     def build(self, **_opts):
@@ -101,7 +103,11 @@ def test_r1_receive_and_advertise_prefix_sid_type1():
             "prefix": prefix,
             "advertisedTo": {"10.0.0.101": {}, "10.0.0.102": {}},
             "paths": [
-                {"valid": True, "remoteLabel": remoteLabel, "labelIndex": labelIndex,}
+                {
+                    "valid": True,
+                    "remoteLabel": remoteLabel,
+                    "labelIndex": labelIndex,
+                }
             ],
         }
         return topotest.json_cmp(output, expected)

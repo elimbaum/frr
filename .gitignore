@@ -59,9 +59,11 @@
 *.pb.cc
 *_clippy.c
 *.bc
+*.ll
 *.cg.json
 *.cg.dot
 *.cg.svg
+*.xref
 
 ### gcov outputs
 
@@ -111,5 +113,7 @@ refix
 .vscode
 .kitchen
 .emacs.desktop*
-
 *.xref
+
+/test-driver
+/test-suite.log

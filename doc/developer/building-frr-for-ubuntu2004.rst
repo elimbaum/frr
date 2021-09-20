@@ -13,9 +13,9 @@ Installing Dependencies
    sudo apt-get install \
       git autoconf automake libtool make libreadline-dev texinfo \
       pkg-config libpam0g-dev libjson-c-dev bison flex python3-pytest \
-      libc-ares-dev python3-dev libsystemd-dev python-ipaddress python3-sphinx \
-      install-info build-essential libsystemd-dev libsnmp-dev perl \
-      libcap-dev python2
+      libc-ares-dev python3-dev python-ipaddress python3-sphinx \
+      install-info build-essential libsnmp-dev perl \
+      libcap-dev python2 libelf-dev
 
 Note that Ubuntu 20 no longer installs python 2.x, so it must be
 installed explicitly. Ensure that your system has a symlink named
@@ -27,7 +27,7 @@ ubuntu apt repositories; in order to install it:
 
 .. code-block:: shell
 
-   curl https://bootstrap.pypa.io/get-pip.py --output get-pip.py
+   curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py
    sudo python2 ./get-pip.py
 
    # And verify the installation

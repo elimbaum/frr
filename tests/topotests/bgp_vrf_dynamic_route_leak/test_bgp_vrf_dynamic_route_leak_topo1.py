@@ -81,6 +81,9 @@ from lib.bgp import (
 )
 from lib.topojson import build_topo_from_json, build_config_from_json
 
+pytestmark = [pytest.mark.bgpd, pytest.mark.staticd]
+
+
 # Reading the data from JSON File for topology creation
 jsonFile = "{}/bgp_vrf_dynamic_route_leak_topo1.json".format(CWD)
 try:
@@ -224,6 +227,7 @@ def disable_route_map_to_prefer_global_next_hop(tgen, topo):
 
     """
 
+    tc_name = request.node.name
     logger.info("Remove prefer-global rmap applied on neighbors")
     input_dict = {
         "r1": {
@@ -758,6 +762,27 @@ def test_dynamic_imported_routes_advertised_to_iBGP_peer_p0(request):
         assert (
             result is not True
         ), "Testcase {} : Failed \n Routes are still present \n Error {}".format(
+            tc_name, result
+        )
+
+    for addr_type in ADDR_TYPES:
+
+        step("On router R1 delete static routes in vrf ISR to LOOPBACK_1")
+
+        input_routes_r1 = {
+            "r1": {
+                "static_routes": [
+                    {
+                        "network": [NETWORK1_3[addr_type], NETWORK1_4[addr_type]],
+                        "next_hop": (intf_r2_r1[addr_type]).split("/")[0],
+                        "delete": True,
+                    }
+                ]
+            }
+        }
+
+        result = create_static_routes(tgen, input_routes_r1)
+        assert result is True, "Testcase {} :Failed \n Error: {}".format(
             tc_name, result
         )
 

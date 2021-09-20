@@ -134,7 +134,7 @@ static void encap_attr_export_ce(struct attr *new, struct attr *orig,
 static int getce(struct bgp *bgp, struct attr *attr, struct prefix *pfx_ce)
 {
 	uint8_t *ecp;
-	int i;
+	uint32_t i;
 	uint16_t localadmin = bgp->rfapi_cfg->resolve_nve_roo_local_admin;
 
 	for (ecp = attr->ecommunity->val, i = 0; i < attr->ecommunity->size;
@@ -164,7 +164,7 @@ static int getce(struct bgp *bgp, struct attr *attr, struct prefix *pfx_ce)
 		memset((uint8_t *)pfx_ce, 0, sizeof(*pfx_ce));
 		memcpy(&pfx_ce->u.prefix4, ecp + 2, 4);
 		pfx_ce->family = AF_INET;
-		pfx_ce->prefixlen = 32;
+		pfx_ce->prefixlen = IPV4_MAX_BITLEN;
 
 		return 0;
 	}
@@ -597,10 +597,10 @@ encap_attr_export(struct attr *new, struct attr *orig,
 		orig_nexthop.family =
 			BGP_MP_NEXTHOP_FAMILY(orig->mp_nexthop_len);
 		if (orig_nexthop.family == AF_INET) {
-			orig_nexthop.prefixlen = 32;
+			orig_nexthop.prefixlen = IPV4_MAX_BITLEN;
 			orig_nexthop.u.prefix4 = orig->mp_nexthop_global_in;
 		} else if (orig_nexthop.family == AF_INET6) {
-			orig_nexthop.prefixlen = 128;
+			orig_nexthop.prefixlen = IPV6_MAX_BITLEN;
 			orig_nexthop.u.prefix6 = orig->mp_nexthop_global;
 		} else {
 			return -1; /* FAIL - can't compute nexthop */
@@ -1177,19 +1177,19 @@ static void vnc_direct_add_rn_group_rd(struct bgp *bgp,
 
 		if (!rfg->rt_export_list || !rfg->rfapi_import_table) {
 			vnc_zlog_debug_verbose(
-				"%s: VRF \"%s\" is missing RT import/export configuration.\n",
+				"%s: VRF \"%s\" is missing RT import/export configuration.",
 				__func__, rfg->name);
 			return;
 		}
 		if (!rfg->rd.prefixlen) {
 			vnc_zlog_debug_verbose(
-				"%s: VRF \"%s\" is missing RD configuration.\n",
+				"%s: VRF \"%s\" is missing RD configuration.",
 				__func__, rfg->name);
 			return;
 		}
 		if (rfg->label > MPLS_LABEL_MAX) {
 			vnc_zlog_debug_verbose(
-				"%s: VRF \"%s\" is missing default label configuration.\n",
+				"%s: VRF \"%s\" is missing default label configuration.",
 				__func__, rfg->name);
 			return;
 		}

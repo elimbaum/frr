@@ -39,6 +39,9 @@ struct ospf6_interface {
 	/* back pointer */
 	struct ospf6_area *area;
 
+	uint32_t area_id;
+	int area_id_format;
+
 	/* list of ospf6 neighbor */
 	struct list *neighbor_list;
 
@@ -52,6 +55,9 @@ struct ospf6_interface {
 
 	/* I/F transmission delay */
 	uint32_t transdelay;
+
+	/* Packet send buffer. */
+	struct ospf6_fifo *obuf; /* Output queue */
 
 	/* Network Type */
 	uint8_t type;
@@ -111,14 +117,26 @@ struct ospf6_interface {
 	struct thread *thread_link_lsa;
 	struct thread *thread_intra_prefix_lsa;
 	struct thread *thread_as_extern_lsa;
+	struct thread *thread_wait_timer;
 
 	struct ospf6_route_table *route_connected;
+
+	/* last hello sent */
+	struct timeval last_hello;
 
 	/* prefix-list name to filter connected prefix */
 	char *plist_name;
 
 	/* BFD information */
-	void *bfd_info;
+	struct {
+		bool enabled;
+		uint8_t detection_multiplier;
+		uint32_t min_rx;
+		uint32_t min_tx;
+		char *profile;
+	} bfd_config;
+
+	int on_write_q;
 
 	/* Statistics Fields */
 	uint32_t hello_in;
@@ -133,9 +151,9 @@ struct ospf6_interface {
 	uint32_t ls_ack_out;
 	uint32_t discarded;
 
-	QOBJ_FIELDS
+	QOBJ_FIELDS;
 };
-DECLARE_QOBJ_TYPE(ospf6_interface)
+DECLARE_QOBJ_TYPE(ospf6_interface);
 
 /* interface state */
 #define OSPF6_INTERFACE_NONE             0
@@ -170,6 +188,9 @@ extern const char *const ospf6_interface_state_str[];
 
 /* Function Prototypes */
 
+extern void ospf6_interface_start(struct ospf6_interface *oi);
+extern void ospf6_interface_stop(struct ospf6_interface *oi);
+
 extern struct ospf6_interface *
 ospf6_interface_lookup_by_ifindex(ifindex_t, vrf_id_t vrf_id);
 extern struct ospf6_interface *ospf6_interface_create(struct interface *);
@@ -178,9 +199,10 @@ extern void ospf6_interface_delete(struct ospf6_interface *);
 extern void ospf6_interface_enable(struct ospf6_interface *);
 extern void ospf6_interface_disable(struct ospf6_interface *);
 
-extern void ospf6_interface_if_add(struct interface *);
 extern void ospf6_interface_state_update(struct interface *);
 extern void ospf6_interface_connected_route_update(struct interface *);
+extern struct in6_addr *
+ospf6_interface_get_global_address(struct interface *ifp);
 
 /* interface event */
 extern int interface_up(struct thread *);
@@ -190,6 +212,7 @@ extern int backup_seen(struct thread *);
 extern int neighbor_change(struct thread *);
 
 extern void ospf6_interface_init(void);
+extern void ospf6_interface_clear(struct interface *ifp);
 
 extern void install_element_ospf6_clear_interface(void);
 
@@ -198,6 +221,6 @@ extern void install_element_ospf6_debug_interface(void);
 
 DECLARE_HOOK(ospf6_interface_change,
 	     (struct ospf6_interface * oi, int state, int old_state),
-	     (oi, state, old_state))
+	     (oi, state, old_state));
 
 #endif /* OSPF6_INTERFACE_H */

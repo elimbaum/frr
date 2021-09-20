@@ -76,7 +76,7 @@ struct hash {
 	/* Data compare function. */
 	bool (*hash_cmp)(const void *, const void *);
 
-	/* Backet alloc. */
+	/* Bucket alloc. */
 	unsigned long count;
 
 	struct hashstats stats;
@@ -103,7 +103,7 @@ struct hash {
  *
  * hash_cmp
  *    comparison function used for resolving collisions; when called with two
- *    data items, should return nonzero if the two items are equal and 0
+ *    data items, should return true if the two items are equal and false
  *    otherwise
  *
  * name
@@ -137,7 +137,7 @@ extern struct hash *hash_create(unsigned int (*hash_key)(const void *),
  *
  * hash_cmp
  *    comparison function used for resolving collisions; when called with two
- *    data items, should return nonzero if the two items are equal and 0
+ *    data items, should return true if the two items are equal and false
  *    otherwise
  *
  * name

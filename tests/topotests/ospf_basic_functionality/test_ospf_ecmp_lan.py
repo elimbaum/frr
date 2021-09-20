@@ -66,8 +66,12 @@ from lib.ospf import (
     verify_ospf_rib,
     create_router_ospf,
     verify_ospf_interface,
+    redistribute_ospf,
 )
 from ipaddress import IPv4Address
+
+pytestmark = [pytest.mark.ospfd, pytest.mark.staticd]
+
 
 # Global variables
 topo = None
@@ -187,42 +191,6 @@ def teardown_module():
         pass
 
 
-def red_static(dut, config=True):
-    """Local def for Redstribute static routes inside ospf."""
-    global topo
-    tgen = get_topogen()
-    if config:
-        ospf_red = {dut: {"ospf": {"redistribute": [{"redist_type": "static"}]}}}
-    else:
-        ospf_red = {
-            dut: {
-                "ospf": {
-                    "redistribute": [{"redist_type": "static", "del_action": True}]
-                }
-            }
-        }
-    result = create_router_ospf(tgen, topo, ospf_red)
-    assert result is True, "Testcase : Failed \n Error: {}".format(result)
-
-
-def red_connected(dut, config=True):
-    """Local def for Redstribute connected routes inside ospf."""
-    global topo
-    tgen = get_topogen()
-    if config:
-        ospf_red = {dut: {"ospf": {"redistribute": [{"redist_type": "connected"}]}}}
-    else:
-        ospf_red = {
-            dut: {
-                "ospf": {
-                    "redistribute": [{"redist_type": "connected", "del_action": True}]
-                }
-            }
-        }
-    result = create_router_ospf(tgen, topo, ospf_red)
-    assert result is True, "Testcase: Failed \n Error: {}".format(result)
-
-
 # ##################################
 # Test cases start here.
 # ##################################
@@ -275,7 +243,7 @@ def test_ospf_lan_ecmp_tc18_p0(request):
         )
 
         dut = rtr
-        red_static(dut)
+        redistribute_ospf(tgen, topo, dut, "static")
 
     step(
         "Verify that route in R0 in stalled with 8 hops. "
@@ -340,9 +308,11 @@ def test_ospf_lan_ecmp_tc18_p0(request):
     step("Verify that all the routes are withdrawn from R0")
     dut = "r1"
     result = verify_ospf_rib(
-        tgen, dut, input_dict, next_hop=nh, attempts=5, expected=False
+        tgen, dut, input_dict, next_hop=nh, retry_timeout=10, expected=False
     )
-    assert result is not True, "Testcase {} : Failed \n Error: {}".format(
+    assert (
+        result is not True
+    ), "Testcase {} : Failed \n " "r1: OSPF routes are present \n Error: {}".format(
         tc_name, result
     )
 
@@ -354,10 +324,12 @@ def test_ospf_lan_ecmp_tc18_p0(request):
         input_dict,
         protocol=protocol,
         next_hop=nh,
-        attempts=5,
+        retry_timeout=10,
         expected=False,
     )
-    assert result is not True, "Testcase {} : Failed \n Error: {}".format(
+    assert (
+        result is not True
+    ), "Testcase {} : Failed \n " "r1: routes are still present \n Error: {}".format(
         tc_name, result
     )
 

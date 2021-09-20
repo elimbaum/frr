@@ -71,7 +71,7 @@ static void recv_join(struct interface *ifp, struct pim_neighbor *neigh,
 	}
 
 	pim_ifp = ifp->info;
-	zassert(pim_ifp);
+	assert(pim_ifp);
 
 	++pim_ifp->pim_ifstat_join_recv;
 
@@ -134,7 +134,7 @@ static void recv_prune(struct interface *ifp, struct pim_neighbor *neigh,
 	}
 
 	pim_ifp = ifp->info;
-	zassert(pim_ifp);
+	assert(pim_ifp);
 
 	++pim_ifp->pim_ifstat_prune_recv;
 
@@ -350,8 +350,11 @@ int pim_joinprune_recv(struct interface *ifp, struct pim_neighbor *neigh,
 					    == PIM_IFJOIN_PRUNE_PENDING_TMP)
 						THREAD_OFF(
 							child->t_ifjoin_prune_pending_timer);
+					THREAD_OFF(
+						child->t_ifjoin_expiry_timer);
 					PIM_IF_FLAG_UNSET_S_G_RPT(child->flags);
 					child->ifjoin_state = PIM_IFJOIN_NOINFO;
+					delete_on_noinfo(child);
 				}
 			}
 

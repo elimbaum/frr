@@ -675,7 +675,8 @@ static int ospf_abr_translate_nssa(struct ospf_area *area, struct ospf_lsa *lsa)
 		 * originate translated LSA
 		 */
 
-		if (ospf_translated_nssa_originate(area->ospf, lsa) == NULL) {
+		if (ospf_translated_nssa_originate(area->ospf, lsa, old)
+		    == NULL) {
 			if (IS_DEBUG_OSPF_NSSA)
 				zlog_debug(
 					"ospf_abr_translate_nssa(): Could not translate Type-7 for %pI4 to Type-5",
@@ -1693,6 +1694,9 @@ static void ospf_abr_manage_discard_routes(struct ospf *ospf)
 
 static void ospf_abr_nssa_task(struct ospf *ospf) /* called only if any_nssa */
 {
+	if (ospf->gr_info.restart_in_progress)
+		return;
+
 	if (IS_DEBUG_OSPF_NSSA)
 		zlog_debug("Check for NSSA-ABR Tasks():");
 
@@ -1757,6 +1761,9 @@ static void ospf_abr_nssa_task(struct ospf *ospf) /* called only if any_nssa */
    summary-LSA origination and flooding. */
 void ospf_abr_task(struct ospf *ospf)
 {
+	if (ospf->gr_info.restart_in_progress)
+		return;
+
 	if (IS_DEBUG_OSPF_EVENT)
 		zlog_debug("ospf_abr_task(): Start");
 
@@ -1817,7 +1824,6 @@ static int ospf_abr_task_timer(struct thread *thread)
 
 	ospf_abr_task(ospf);
 	ospf_abr_nssa_task(ospf); /* if nssa-abr, then scan Type-7 LSDB */
-	ospf_asbr_nssa_redist_task(ospf);
 
 	return 0;
 }

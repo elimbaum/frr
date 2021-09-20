@@ -481,7 +481,7 @@ int pim_parse_addr_ucast(struct prefix *p, const uint8_t *buf, int buf_size)
 		p->family = AF_INET; /* notice: AF_INET !=
 					PIM_MSG_ADDRESS_FAMILY_IPV4 */
 		memcpy(&p->u.prefix4, addr, sizeof(struct in_addr));
-		p->prefixlen = IPV4_MAX_PREFIXLEN;
+		p->prefixlen = IPV4_MAX_BITLEN;
 		addr += sizeof(struct in_addr);
 
 		break;
@@ -495,7 +495,7 @@ int pim_parse_addr_ucast(struct prefix *p, const uint8_t *buf, int buf_size)
 		}
 
 		p->family = AF_INET6;
-		p->prefixlen = IPV6_MAX_PREFIXLEN;
+		p->prefixlen = IPV6_MAX_BITLEN;
 		memcpy(&p->u.prefix6, addr, sizeof(struct in6_addr));
 		addr += sizeof(struct in6_addr);
 
@@ -626,7 +626,7 @@ int pim_parse_addr_source(struct prefix_sg *sg, uint8_t *flags,
 		   messages
 		   received with any other mask length.
 		*/
-		if (mask_len != 32) {
+		if (mask_len != IPV4_MAX_BITLEN) {
 			zlog_warn("%s: IPv4 bad source address mask: %d",
 				  __func__, mask_len);
 			return -4;
@@ -662,7 +662,7 @@ int pim_tlv_parse_addr_list(const char *ifname, struct in_addr src_addr,
 	const uint8_t *addr;
 	const uint8_t *pastend;
 
-	zassert(hello_option_addr_list);
+	assert(hello_option_addr_list);
 
 	/*
 	  Scan addr list

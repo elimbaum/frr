@@ -97,6 +97,9 @@ from lib.topolog import logger
 from lib.bgp import verify_bgp_convergence, create_router_bgp, clear_bgp_and_verify
 from lib.topojson import build_topo_from_json, build_config_from_json
 
+pytestmark = [pytest.mark.bgpd]
+
+
 # Reading the data from JSON File for topology and configuration creation
 jsonFile = "{}/bgp_large_community_topo_2.json".format(CWD)
 
@@ -598,8 +601,11 @@ def test_large_community_lists_with_rmap_apply_and_remove(request):
         result = verify_bgp_community(
             tgen, adt, dut, NETWORKS[adt], input_dict_4, expected=False
         )
-        assert result is not True, "Testcase {} : Failed \n Error: {}".format(
-            tc_name, result
+        assert result is not True, (
+            "Testcase {} : Failed \n "
+            "largeCommunity is still present after deleting route-map \n Error: {}".format(
+                tc_name, result
+            )
         )
 
     write_test_footer(tc_name)
@@ -898,8 +904,9 @@ def test_large_community_lists_with_rmap_set_none(request):
     dut = "r6"
     for adt in ADDR_TYPES:
         result = verify_bgp_community(tgen, adt, dut, NETWORKS[adt], expected=False)
-        assert result is not True, "Testcase {} : Failed \n Error: {}".format(
-            tc_name, result
+        assert result is not True, (
+            "Testcase {} : Failed \n "
+            "Community-list is still present \n Error: {}".format(tc_name, result)
         )
 
     write_test_footer(tc_name)
@@ -2132,7 +2139,11 @@ def test_large_community_lists_with_rmap_match_regex(request):
                     {
                         "action": "permit",
                         "seq_id": "10",
-                        "match": {"large_community_list": {"id": "ALL",},},
+                        "match": {
+                            "large_community_list": {
+                                "id": "ALL",
+                            },
+                        },
                     }
                 ]
             }
@@ -2208,7 +2219,11 @@ def test_large_community_lists_with_rmap_match_regex(request):
                     {
                         "action": "permit",
                         "seq_id": "20",
-                        "match": {"large_community_list": {"id": "EXP_ALL",},},
+                        "match": {
+                            "large_community_list": {
+                                "id": "EXP_ALL",
+                            },
+                        },
                     }
                 ]
             }
@@ -2228,8 +2243,9 @@ def test_large_community_lists_with_rmap_match_regex(request):
         result = verify_bgp_community(
             tgen, adt, dut, NETWORKS[adt], input_dict_7, expected=False
         )
-        assert result is not True, "Testcase {} : Failed \n Error: {}".format(
-            tc_name, result
+        assert result is not True, (
+            "Testcase {} : Failed \n "
+            "largeCommunity is still present \n Error: {}".format(tc_name, result)
         )
 
     write_test_footer(tc_name)

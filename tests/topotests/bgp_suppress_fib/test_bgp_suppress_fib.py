@@ -40,6 +40,8 @@ from lib.topogen import Topogen, TopoRouter, get_topogen
 from lib.topolog import logger
 from mininet.topo import Topo
 
+pytestmark = [pytest.mark.bgpd]
+
 
 class TemplateTopo(Topo):
     def build(self, *_args, **_opts):
@@ -55,6 +57,7 @@ class TemplateTopo(Topo):
         switch = tgen.add_switch("s2")
         switch.add_link(tgen.gears["r2"])
         switch.add_link(tgen.gears["r3"])
+
 
 def setup_module(mod):
     tgen = Topogen(TemplateTopo, mod.__name__)
@@ -113,6 +116,7 @@ def test_bgp_route():
     _, result = topotest.run_and_expect(test_func, None, count=3, wait=0.5)
     assertmsg = '"r3" JSON output mismatches'
     assert result is None, assertmsg
+
 
 if __name__ == "__main__":
     args = ["-s"] + sys.argv[1:]
