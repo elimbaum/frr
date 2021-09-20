@@ -159,7 +159,7 @@ static int pim_igmp_other_querier_expire(struct thread *t)
 
 	igmp = THREAD_ARG(t);
 
-	zassert(!igmp->t_igmp_query_timer);
+	assert(!igmp->t_igmp_query_timer);
 
 	if (PIM_DEBUG_IGMP_TRACE) {
 		char ifaddr_str[INET_ADDRSTRLEN];
@@ -167,6 +167,8 @@ static int pim_igmp_other_querier_expire(struct thread *t)
 			       sizeof(ifaddr_str));
 		zlog_debug("%s: Querier %s resuming", __func__, ifaddr_str);
 	}
+	/* Mark the interface address as querier address */
+	igmp->querier_addr = igmp->ifaddr;
 
 	/*
 	  We are the current querier, then
@@ -185,9 +187,9 @@ void pim_igmp_other_querier_timer_on(struct igmp_sock *igmp)
 	long other_querier_present_interval_msec;
 	struct pim_interface *pim_ifp;
 
-	zassert(igmp);
-	zassert(igmp->interface);
-	zassert(igmp->interface->info);
+	assert(igmp);
+	assert(igmp->interface);
+	assert(igmp->interface->info);
 
 	pim_ifp = igmp->interface->info;
 
@@ -218,7 +220,7 @@ void pim_igmp_other_querier_timer_on(struct igmp_sock *igmp)
 	  Since this socket is starting the other-querier-present timer,
 	  there should not be periodic query timer for this socket.
 	 */
-	zassert(!igmp->t_igmp_query_timer);
+	assert(!igmp->t_igmp_query_timer);
 
 	/*
 	  RFC 3376: 8.5. Other Querier Present Interval
@@ -255,7 +257,7 @@ void pim_igmp_other_querier_timer_on(struct igmp_sock *igmp)
 
 void pim_igmp_other_querier_timer_off(struct igmp_sock *igmp)
 {
-	zassert(igmp);
+	assert(igmp);
 
 	if (PIM_DEBUG_IGMP_TRACE) {
 		if (igmp->t_other_querier_timer) {
@@ -397,6 +399,8 @@ static int igmp_recv_query(struct igmp_sock *igmp, int query_version,
 				ntohl(igmp->ifaddr.s_addr), from_str,
 				ntohl(from.s_addr));
 		}
+		if (ntohl(from.s_addr) < ntohl(igmp->querier_addr.s_addr))
+			igmp->querier_addr.s_addr = from.s_addr;
 
 		pim_igmp_other_querier_timer_on(igmp);
 	}
@@ -469,9 +473,66 @@ static int igmp_v1_recv_report(struct igmp_sock *igmp, struct in_addr from,
 	return 0;
 }
 
+bool pim_igmp_verify_header(struct ip *ip_hdr, size_t len, size_t *hlen)
+{
+	char *igmp_msg;
+	int igmp_msg_len;
+	int msg_type;
+	size_t ip_hlen; /* ip header length in bytes */
+
+	if (len < sizeof(*ip_hdr)) {
+		zlog_warn("IGMP packet size=%zu shorter than minimum=%zu", len,
+			  sizeof(*ip_hdr));
+		return false;
+	}
+
+	ip_hlen = ip_hdr->ip_hl << 2; /* ip_hl gives length in 4-byte words */
+	*hlen = ip_hlen;
+
+	if (ip_hlen > len) {
+		zlog_warn(
+			"IGMP packet header claims size %zu, but we only have %zu bytes",
+			ip_hlen, len);
+		return false;
+	}
+
+	igmp_msg = (char *)ip_hdr + ip_hlen;
+	igmp_msg_len = len - ip_hlen;
+	msg_type = *igmp_msg;
+
+	if (igmp_msg_len < PIM_IGMP_MIN_LEN) {
+		zlog_warn("IGMP message size=%d shorter than minimum=%d",
+			  igmp_msg_len, PIM_IGMP_MIN_LEN);
+		return false;
+	}
+
+	if ((msg_type != PIM_IGMP_MTRACE_RESPONSE)
+	    && (msg_type != PIM_IGMP_MTRACE_QUERY_REQUEST)) {
+		if (ip_hdr->ip_ttl != 1) {
+			zlog_warn(
+				"Recv IGMP packet with invalid ttl=%u, discarding the packet",
+				ip_hdr->ip_ttl);
+			return false;
+		}
+	}
+
+	if ((msg_type == PIM_IGMP_V3_MEMBERSHIP_REPORT)
+	    || ((msg_type == PIM_IGMP_MEMBERSHIP_QUERY)
+		&& (igmp_msg_len >= IGMP_V3_SOURCES_OFFSET))) {
+		/* All IGMPv3 messages must be received with TOS set to 0xC0*/
+		if (ip_hdr->ip_tos != IPTOS_PREC_INTERNETCONTROL) {
+			zlog_warn("Received IGMP Packet with invalid TOS %u",
+				  ip_hdr->ip_tos);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 int pim_igmp_packet(struct igmp_sock *igmp, char *buf, size_t len)
 {
-	struct ip *ip_hdr;
+	struct ip *ip_hdr = (struct ip *)buf;
 	size_t ip_hlen; /* ip header length in bytes */
 	char *igmp_msg;
 	int igmp_msg_len;
@@ -479,36 +540,15 @@ int pim_igmp_packet(struct igmp_sock *igmp, char *buf, size_t len)
 	char from_str[INET_ADDRSTRLEN];
 	char to_str[INET_ADDRSTRLEN];
 
-	if (len < sizeof(*ip_hdr)) {
-		zlog_warn("IGMP packet size=%zu shorter than minimum=%zu", len,
-			  sizeof(*ip_hdr));
+	if (!pim_igmp_verify_header(ip_hdr, len, &ip_hlen))
 		return -1;
-	}
-
-	ip_hdr = (struct ip *)buf;
-
-	pim_inet4_dump("<src?>", ip_hdr->ip_src, from_str, sizeof(from_str));
-	pim_inet4_dump("<dst?>", ip_hdr->ip_dst, to_str, sizeof(to_str));
-
-	ip_hlen = ip_hdr->ip_hl << 2; /* ip_hl gives length in 4-byte words */
-
-	if (ip_hlen > len) {
-		zlog_warn(
-			"IGMP packet header claims size %zu, but we only have %zu bytes",
-			ip_hlen, len);
-		return -1;
-	}
 
 	igmp_msg = buf + ip_hlen;
 	igmp_msg_len = len - ip_hlen;
-
-	if (igmp_msg_len < PIM_IGMP_MIN_LEN) {
-		zlog_warn("IGMP message size=%d shorter than minimum=%d",
-			  igmp_msg_len, PIM_IGMP_MIN_LEN);
-		return -1;
-	}
-
 	msg_type = *igmp_msg;
+
+	pim_inet4_dump("<src?>", ip_hdr->ip_src, from_str, sizeof(from_str));
+	pim_inet4_dump("<dst?>", ip_hdr->ip_dst, to_str, sizeof(to_str));
 
 	if (PIM_DEBUG_IGMP_PACKETS) {
 		zlog_debug(
@@ -558,8 +598,8 @@ int pim_igmp_packet(struct igmp_sock *igmp, char *buf, size_t len)
 					   igmp_msg, igmp_msg_len);
 
 	case PIM_IGMP_V2_LEAVE_GROUP:
-		return igmp_v2_recv_leave(igmp, ip_hdr->ip_src, from_str,
-					  igmp_msg, igmp_msg_len);
+		return igmp_v2_recv_leave(igmp, ip_hdr, from_str, igmp_msg,
+					  igmp_msg_len);
 
 	case PIM_IGMP_MTRACE_RESPONSE:
 		return igmp_mtrace_recv_response(igmp, ip_hdr, ip_hdr->ip_src,
@@ -589,9 +629,9 @@ void pim_igmp_general_query_on(struct igmp_sock *igmp)
 	  Since this socket is starting as querier,
 	  there should not exist a timer for other-querier-present.
 	 */
-	zassert(!igmp->t_other_querier_timer);
+	assert(!igmp->t_other_querier_timer);
 	pim_ifp = igmp->interface->info;
-	zassert(pim_ifp);
+	assert(pim_ifp);
 
 	/*
 	  RFC 3376: 8.6. Startup Query Interval
@@ -638,7 +678,7 @@ void pim_igmp_general_query_on(struct igmp_sock *igmp)
 
 void pim_igmp_general_query_off(struct igmp_sock *igmp)
 {
-	zassert(igmp);
+	assert(igmp);
 
 	if (PIM_DEBUG_IGMP_TRACE) {
 		if (igmp->t_igmp_query_timer) {
@@ -664,8 +704,8 @@ static int pim_igmp_general_query(struct thread *t)
 
 	igmp = THREAD_ARG(t);
 
-	zassert(igmp->interface);
-	zassert(igmp->interface->info);
+	assert(igmp->interface);
+	assert(igmp->interface->info);
 
 	pim_ifp = igmp->interface->info;
 
@@ -835,19 +875,19 @@ void igmp_group_delete(struct igmp_group *group)
 
 void igmp_group_delete_empty_include(struct igmp_group *group)
 {
-	zassert(!group->group_filtermode_isexcl);
-	zassert(!listcount(group->group_source_list));
+	assert(!group->group_filtermode_isexcl);
+	assert(!listcount(group->group_source_list));
 
 	igmp_group_delete(group);
 }
 
 void igmp_sock_free(struct igmp_sock *igmp)
 {
-	zassert(!igmp->t_igmp_read);
-	zassert(!igmp->t_igmp_query_timer);
-	zassert(!igmp->t_other_querier_timer);
-	zassert(igmp->igmp_group_list);
-	zassert(!listcount(igmp->igmp_group_list));
+	assert(!igmp->t_igmp_read);
+	assert(!igmp->t_igmp_query_timer);
+	assert(!igmp->t_other_querier_timer);
+	assert(igmp->igmp_group_list);
+	assert(!listcount(igmp->igmp_group_list));
 
 	list_delete(&igmp->igmp_group_list);
 	hash_free(igmp->igmp_group_hash);
@@ -935,6 +975,7 @@ static struct igmp_sock *igmp_sock_new(int fd, struct in_addr ifaddr,
 	igmp->fd = fd;
 	igmp->interface = ifp;
 	igmp->ifaddr = ifaddr;
+	igmp->querier_addr = ifaddr;
 	igmp->t_igmp_read = NULL;
 	igmp->t_igmp_query_timer = NULL;
 	igmp->t_other_querier_timer = NULL; /* no other querier present */
@@ -1028,8 +1069,8 @@ struct igmp_sock *pim_igmp_sock_add(struct list *igmp_sock_list,
 	sin.sin_addr = ifaddr;
 	sin.sin_port = 0;
 	if (bind(fd, (struct sockaddr *) &sin, sizeof(sin)) != 0) {
-		zlog_warn("Could not bind IGMP socket for %pI4 on %s",
-			  &ifaddr, ifp->name);
+		zlog_warn("Could not bind IGMP socket for %pI4 on %s: %s(%d)",
+			  &ifaddr, ifp->name, strerror(errno), errno);
 		close(fd);
 
 		return NULL;
@@ -1076,7 +1117,7 @@ static int igmp_group_timer(struct thread *t)
 			   group_str, group->group_igmp_sock->interface->name);
 	}
 
-	zassert(group->group_filtermode_isexcl);
+	assert(group->group_filtermode_isexcl);
 
 	group->group_filtermode_isexcl = 0;
 
@@ -1085,7 +1126,7 @@ static int igmp_group_timer(struct thread *t)
 
 	igmp_source_delete_expired(group->group_source_list);
 
-	zassert(!group->group_filtermode_isexcl);
+	assert(!group->group_filtermode_isexcl);
 
 	/*
 	  RFC 3376: 6.2.2. Definition of Group Timers
@@ -1137,7 +1178,7 @@ void igmp_group_timer_on(struct igmp_group *group, long interval_msec,
 	  it represents the time for the *filter-mode* of the group to
 	  expire and switch to INCLUDE mode.
 	*/
-	zassert(group->group_filtermode_isexcl);
+	assert(group->group_filtermode_isexcl);
 
 	thread_add_timer_msec(router->master, igmp_group_timer, group,
 			      interval_msec, &group->t_group_timer);
@@ -1228,8 +1269,8 @@ struct igmp_group *igmp_add_group_by_addr(struct igmp_sock *igmp,
 	  it represents the time for the *filter-mode* of the group to
 	  expire and switch to INCLUDE mode.
 	*/
-	zassert(!group->group_filtermode_isexcl); /* INCLUDE mode */
-	zassert(!group->t_group_timer);		  /* group timer == 0 */
+	assert(!group->group_filtermode_isexcl); /* INCLUDE mode */
+	assert(!group->t_group_timer);		 /* group timer == 0 */
 
 	/* Any source (*,G) is forwarded only if mode is EXCLUDE {empty} */
 	igmp_anysource_forward_stop(group);

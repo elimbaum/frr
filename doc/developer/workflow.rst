@@ -500,9 +500,21 @@ made. For example, a change in :file:`bgpd/rfapi` would be formatted as::
 The first line should be no longer than 50 characters. Subsequent lines should
 be wrapped to 72 characters.
 
+The purpose of commit messages is to briefly summarize what the commit is
+changing. Therefore, the extended summary portion should be in the form of an
+English paragraph. Brief examples of program output are acceptable but if
+present should be short (on the order of 10 lines) and clearly demonstrate what
+has changed. The goal should be that someone with only passing familiarity with
+the code in question can understand what is being changed.
+
+Commit messages consisting entirely of program output are *unacceptable*. These
+do not describe the behavior changed. For example, putting VTYSH output or the
+result of test runs as the sole content of commit messages is unacceptable.
+
 You must also sign off on your commit.
 
 .. seealso:: :ref:`signing-off`
+
 
 Source File Header
 ------------------
@@ -563,7 +575,7 @@ In general, code submitted into FRR will be rejected if it uses unsafe
 programming practices.  While there is no enforced overall ruleset, the
 following requirements have achieved consensus:
 
-- ``strcpy``, ``strcat`` and ``sprintf`` are inacceptable without exception.
+- ``strcpy``, ``strcat`` and ``sprintf`` are unacceptable without exception.
   Use ``strlcpy``, ``strlcat`` and ``snprintf`` instead.  (Rationale:  even if
   you know the operation cannot overflow the buffer, a future code change may
   inadvertedly introduce an overflow.)
@@ -867,6 +879,104 @@ doesn't warrant an update to checkpatch, it is documented here.
 | DEFPY_HIDDEN, DEFPY_ATTR: complex macros | DEF* macros cannot be wrapped in parentheses without updating |
 | should be wrapped in parentheses         | all usages of the macro, which would be highly disruptive.    |
 +------------------------------------------+---------------------------------------------------------------+
+
+Types of configurables
+----------------------
+
+.. note::
+
+   This entire section essentially just argues to not make configuration
+   unnecessarily involved for the user.  Rather than rules, this is more of
+   a list of conclusions intended to help make FRR usable for operators.
+
+
+Almost every feature FRR has comes with its own set of switches and options.
+There are several stages at which configuration can be applied.  In order of
+preference, these are:
+
+-  at configuration/runtime, through YANG.
+
+   This is the preferred way for all FRR knobs.  Not all daemons and features
+   are fully YANGified yet, so in some cases new features cannot rely on a
+   YANG interface.  If a daemon already implements a YANG interface (even
+   partial), new CLI options must be implemented through a YANG model.
+
+   .. warning::
+
+      Unlike everything else in this section being guidelines with some slack,
+      implementing and using a YANG interface for new CLI options in (even
+      partially!) YANGified daemons is a hard requirement.
+
+
+-  at configuration/runtime, through the CLI.
+
+   The "good old" way for all regular configuration.  More involved for users
+   to automate *correctly* than YANG.
+
+-  at startup, by loading additional modules.
+
+   If a feature introduces a dependency on additional libraries (e.g. libsnmp,
+   rtrlib, etc.), this is the best way to encapsulate the dependency.  Having
+   a separate module allows the distribution to create a separate package
+   with the extra dependency, so FRR can still be installed without pulling
+   everything in.
+
+   A module may also be appropriate if a feature is large and reasonably well
+   isolated.  Reducing the amount of running the code is a security benefit,
+   so even if there are no new external dependencies, modules can be useful.
+
+   While modules cannot currently be loaded at runtime, this is a tradeoff
+   decision that was made to allow modules to change/extend code that is very
+   hard to (re)adjust at runtime.  If there is a case for runtime (un)loading
+   of modules, this tradeoff can absolutely be reevaluated.
+
+-  at startup, with command line options.
+
+   This interface is only appropriate for options that have an effect very
+   early in FRR startup, i.e. before configuration is loaded.  Anything that
+   affects configuration load itself should be here, as well as options
+   changing the environment FRR runs in.
+
+   If a tunable can be changed at runtime, a command line option is only
+   acceptable if the configured value has an effect before configuration is
+   loaded (e.g. zebra reads routes from the kernel before loading config, so
+   the netlink buffer size is an appropriate command line option.)
+
+-  at compile time, with ``./configure`` options.
+
+   This is the absolute last preference for tunables, since the distribution
+   needs to make the decision for the user and/or the user needs to rebuild
+   FRR in order to change the option.
+
+   "Good" configure options do one of three things:
+
+   -  set distribution-specific parameters, most prominently all the path
+      options.  File system layout is a distribution/packaging choice, so the
+      user would hopefully never need to adjust these.
+
+   -  changing toolchain behavior, e.g. instrumentation, warnings,
+      optimizations and sanitizers.
+
+   -  enabling/disabling parts of the build, especially if they need
+      additional dependencies.  Being able to build only parts of FRR, or
+      without some library, is useful.  **The only effect these options should
+      have is adding or removing files from the build result.**  If a knob
+      in this category causes the same binary to exist in different variants,
+      it is likely implemented incorrectly!
+
+      .. note::
+
+         This last guideline is currently ignored by several configure options.
+         ``vtysh`` in general depends on the entire list of enabled daemons,
+         and options like ``--enable-bgp-vnc`` and ``--enable-ospfapi`` change
+         daemons internally.  Consider this more of an "ideal" than a "rule".
+
+
+Whenever adding new knobs, please try reasonably hard to go up as far as
+possible on the above list.  Especially ``./configure`` flags are often enough
+the "easy way out" but should be avoided when at all possible.  To a lesser
+degree, the same applies to command line options.
+
 
 Compile-time conditional code
 -----------------------------
@@ -1229,13 +1339,12 @@ towards making documentation easier to use, write and maintain.
 CLI Commands
 ^^^^^^^^^^^^
 
-When documenting CLI please use a combination of the ``.. index::`` and
-``.. clicmd::`` directives. For example, the command :clicmd:`show pony` would
-be documented as follows:
+When documenting CLI please use the ``.. clicmd::`` directive. This directive
+will format the command and generate index entries automatically. For example,
+the command :clicmd:`show pony` would be documented as follows:
 
 .. code-block:: rest
 
-   .. index:: show pony
    .. clicmd:: show pony
 
       Prints an ASCII pony. Example output:::
@@ -1252,6 +1361,7 @@ be documented as follows:
          hjw    |_>|>     /_] //
                   /_]        /_]
 
+
 When documented this way, CLI commands can be cross referenced with the
 ``:clicmd:`` inline markup like so:
 
@@ -1261,6 +1371,28 @@ When documented this way, CLI commands can be cross referenced with the
 
 This is very helpful for users who want to quickly remind themselves what a
 particular command does.
+
+When documenting a cli that has a ``no`` form, please do not include the ``no``
+form. I.e. ``no show pony`` would not be documented anywhere. Since most
+commands have ``no`` forms, users should be able to infer these or get help
+from vtysh's completions.
+
+When documenting commands that have lots of possible variants, just document
+the single command in summary rather than enumerating each possible variant.
+E.g. for ``show pony [foo|bar]``, do not:
+
+.. code-block:: rest
+
+   .. clicmd:: show pony
+   .. clicmd:: show pony foo
+   .. clicmd:: show pony bar
+
+Do:
+
+.. code-block:: rest
+
+   .. clicmd:: show pony [foo|bar]
+
 
 Configuration Snippets
 ^^^^^^^^^^^^^^^^^^^^^^

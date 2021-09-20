@@ -92,8 +92,8 @@ struct igmp_sock {
 	struct thread
 		*t_igmp_query_timer; /* timer: issue IGMP general queries */
 	struct thread *t_other_querier_timer; /* timer: other querier present */
-
-	int querier_query_interval;      /* QQI */
+	struct in_addr querier_addr;	  /* IP address of the querier */
+	int querier_query_interval;	   /* QQI */
 	int querier_robustness_variable; /* QRV */
 	int startup_query_count;
 
@@ -116,7 +116,7 @@ void igmp_sock_delete(struct igmp_sock *igmp);
 void igmp_sock_free(struct igmp_sock *igmp);
 void igmp_sock_delete_all(struct interface *ifp);
 int pim_igmp_packet(struct igmp_sock *igmp, char *buf, size_t len);
-
+bool pim_igmp_verify_header(struct ip *ip_hdr, size_t len, size_t *ip_hlen);
 void pim_igmp_general_query_on(struct igmp_sock *igmp);
 void pim_igmp_general_query_off(struct igmp_sock *igmp);
 void pim_igmp_other_querier_timer_on(struct igmp_sock *igmp);

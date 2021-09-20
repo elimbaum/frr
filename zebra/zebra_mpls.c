@@ -44,17 +44,17 @@
 #include "zebra/zebra_router.h"
 #include "zebra/redistribute.h"
 #include "zebra/debug.h"
-#include "zebra/zebra_memory.h"
 #include "zebra/zebra_vrf.h"
 #include "zebra/zebra_mpls.h"
 #include "zebra/zebra_srte.h"
 #include "zebra/zebra_errors.h"
 
-DEFINE_MTYPE_STATIC(ZEBRA, LSP, "MPLS LSP object")
-DEFINE_MTYPE_STATIC(ZEBRA, FEC, "MPLS FEC object")
-DEFINE_MTYPE_STATIC(ZEBRA, NHLFE, "MPLS nexthop object")
+DEFINE_MTYPE_STATIC(ZEBRA, LSP, "MPLS LSP object");
+DEFINE_MTYPE_STATIC(ZEBRA, FEC, "MPLS FEC object");
+DEFINE_MTYPE_STATIC(ZEBRA, NHLFE, "MPLS nexthop object");
 
 int mpls_enabled;
+bool mpls_pw_reach_strict; /* Strict reachability checking */
 
 /* static function declarations */
 
@@ -613,7 +613,7 @@ static int nhlfe_nexthop_active_ipv4(zebra_nhlfe_t *nhlfe,
 	/* Lookup nexthop in IPv4 routing table. */
 	memset(&p, 0, sizeof(struct prefix_ipv4));
 	p.family = AF_INET;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	p.prefix = nexthop->gate.ipv4;
 
 	rn = route_node_match(table, (struct prefix *)&p);
@@ -662,7 +662,7 @@ static int nhlfe_nexthop_active_ipv6(zebra_nhlfe_t *nhlfe,
 	/* Lookup nexthop in IPv6 routing table. */
 	memset(&p, 0, sizeof(struct prefix_ipv6));
 	p.family = AF_INET6;
-	p.prefixlen = IPV6_MAX_PREFIXLEN;
+	p.prefixlen = IPV6_MAX_BITLEN;
 	p.prefix = nexthop->gate.ipv6;
 
 	rn = route_node_match(table, (struct prefix *)&p);
@@ -873,6 +873,22 @@ static void lsp_schedule(struct hash_bucket *bucket, void *ctxt)
 	zebra_lsp_t *lsp;
 
 	lsp = (zebra_lsp_t *)bucket->data;
+
+	/* In the common flow, this is used when external events occur. For
+	 * LSPs with backup nhlfes, we'll assume that the forwarding
+	 * plane will use the backups to handle these events, until the
+	 * owning protocol can react.
+	 */
+	if (ctxt == NULL) {
+		/* Skip LSPs with backups */
+		if (nhlfe_list_first(&lsp->backup_nhlfe_list) != NULL) {
+			if (IS_ZEBRA_DEBUG_MPLS_DETAIL)
+				zlog_debug("%s: skip LSP in-label %u",
+					   __func__, lsp->ile.in_label);
+			return;
+		}
+	}
+
 	(void)lsp_processq_add(lsp);
 }
 
@@ -2003,6 +2019,7 @@ void zebra_mpls_process_dplane_notify(struct zebra_dplane_ctx *ctx)
 	int start_count = 0, end_count = 0; /* Installed counts */
 	bool changed_p = false;
 	bool is_debug = (IS_ZEBRA_DEBUG_DPLANE | IS_ZEBRA_DEBUG_MPLS);
+	enum zebra_sr_policy_update_label_mode update_mode;
 
 	if (is_debug)
 		zlog_debug("LSP dplane notif, in-label %u",
@@ -2076,10 +2093,21 @@ void zebra_mpls_process_dplane_notify(struct zebra_dplane_ctx *ctx)
 	if (end_count > 0) {
 		SET_FLAG(lsp->flags, LSP_FLAG_INSTALLED);
 
+		/* SR-TE update too */
+		if (start_count == 0)
+			update_mode = ZEBRA_SR_POLICY_LABEL_CREATED;
+		else
+			update_mode = ZEBRA_SR_POLICY_LABEL_UPDATED;
+		zebra_sr_policy_label_update(lsp->ile.in_label, update_mode);
+
 		if (changed_p)
 			dplane_lsp_notif_update(lsp, DPLANE_OP_LSP_UPDATE, ctx);
 
 	} else {
+		/* SR-TE update too */
+		zebra_sr_policy_label_update(lsp->ile.in_label,
+					     ZEBRA_SR_POLICY_LABEL_REMOVED);
+
 		UNSET_FLAG(lsp->flags, LSP_FLAG_INSTALLED);
 		clear_nhlfe_installed(lsp);
 	}
@@ -3904,6 +3932,40 @@ void zebra_mpls_cleanup_tables(struct zebra_vrf *zvrf)
 }
 
 /*
+ * When a vrf label is assigned and the client goes away
+ * we should cleanup the vrf labels associated with
+ * that zclient.
+ */
+void zebra_mpls_client_cleanup_vrf_label(uint8_t proto)
+{
+	struct vrf *vrf;
+	struct zebra_vrf *def_zvrf = zebra_vrf_lookup_by_id(VRF_DEFAULT);
+
+	if (def_zvrf == NULL)
+		return;
+
+	RB_FOREACH (vrf, vrf_id_head, &vrfs_by_id) {
+		struct zebra_vrf *zvrf = vrf->info;
+		afi_t afi;
+
+		if (!zvrf)
+			continue;
+
+		for (afi = AFI_IP; afi < AFI_MAX; afi++) {
+			if (zvrf->label_proto[afi] == proto
+			    && zvrf->label[afi] != MPLS_LABEL_NONE)
+				lsp_uninstall(def_zvrf, zvrf->label[afi]);
+
+			/*
+			 * Cleanup data structures by fiat
+			 */
+			zvrf->label_proto[afi] = 0;
+			zvrf->label[afi] = MPLS_LABEL_NONE;
+		}
+	}
+}
+
+/*
  * Called upon process exiting, need to delete LSP forwarding
  * entries from the kernel.
  * NOTE: Currently supported only for default VRF.
@@ -3925,11 +3987,18 @@ void zebra_mpls_close_tables(struct zebra_vrf *zvrf)
  */
 void zebra_mpls_init_tables(struct zebra_vrf *zvrf)
 {
+	char buffer[80];
+
 	if (!zvrf)
 		return;
-	zvrf->slsp_table =
-		hash_create(label_hash, label_cmp, "ZEBRA SLSP table");
-	zvrf->lsp_table = hash_create(label_hash, label_cmp, "ZEBRA LSP table");
+
+	snprintf(buffer, sizeof(buffer), "ZEBRA SLSP table: %s",
+		 zvrf->vrf->name);
+	zvrf->slsp_table = hash_create_size(8, label_hash, label_cmp, buffer);
+
+	snprintf(buffer, sizeof(buffer), "ZEBRA LSP table: %s",
+		 zvrf->vrf->name);
+	zvrf->lsp_table = hash_create_size(8, label_hash, label_cmp, buffer);
 	zvrf->fec_table[AFI_IP] = route_table_init();
 	zvrf->fec_table[AFI_IP6] = route_table_init();
 	zvrf->mpls_flags = 0;
@@ -3943,6 +4012,7 @@ void zebra_mpls_init_tables(struct zebra_vrf *zvrf)
 void zebra_mpls_init(void)
 {
 	mpls_enabled = 0;
+	mpls_pw_reach_strict = false;
 
 	if (mpls_kernel_init() < 0) {
 		flog_warn(EC_ZEBRA_MPLS_SUPPORT_DISABLED,

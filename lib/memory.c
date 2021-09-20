@@ -34,8 +34,9 @@
 static struct memgroup *mg_first = NULL;
 struct memgroup **mg_insert = &mg_first;
 
-DEFINE_MGROUP(LIB, "libfrr")
-DEFINE_MTYPE(LIB, TMP, "Temporary memory")
+DEFINE_MGROUP(LIB, "libfrr");
+DEFINE_MTYPE(LIB, TMP, "Temporary memory");
+DEFINE_MTYPE(LIB, BITFIELD, "Bitfield memory");
 
 static inline void mt_count_alloc(struct memtype *mt, size_t size, void *ptr)
 {
@@ -125,6 +126,12 @@ void *qrealloc(struct memtype *mt, void *ptr, size_t size)
 void *qstrdup(struct memtype *mt, const char *str)
 {
 	return str ? mt_checkalloc(mt, strdup(str), strlen(str) + 1) : NULL;
+}
+
+void qcountfree(struct memtype *mt, void *ptr)
+{
+	if (ptr)
+		mt_count_free(mt, ptr);
 }
 
 void qfree(struct memtype *mt, void *ptr)

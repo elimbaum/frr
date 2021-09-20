@@ -101,9 +101,8 @@ static int bgp_md5_set_socket(int socket, union sockunion *su,
 		su2.sin6.sin6_port = 0;
 
 	/* For addresses, use the non-extended signature functionality */
-	if ((su2.sa.sa_family == AF_INET && prefixlen == IPV4_MAX_PREFIXLEN)
-	    || (su2.sa.sa_family == AF_INET6
-		&& prefixlen == IPV6_MAX_PREFIXLEN))
+	if ((su2.sa.sa_family == AF_INET && prefixlen == IPV4_MAX_BITLEN)
+	    || (su2.sa.sa_family == AF_INET6 && prefixlen == IPV6_MAX_BITLEN))
 		ret = sockopt_tcp_signature(socket, &su2, password);
 	else
 		ret = sockopt_tcp_signature_ext(socket, &su2, prefixlen,
@@ -164,8 +163,8 @@ static int bgp_md5_set_password(struct peer *peer, const char *password)
 			    peer->su.sa.sa_family) {
 				uint16_t prefixlen =
 					peer->su.sa.sa_family == AF_INET
-					? IPV4_MAX_PREFIXLEN
-					: IPV6_MAX_PREFIXLEN;
+						? IPV4_MAX_BITLEN
+						: IPV6_MAX_BITLEN;
 
 				/*
 				 * if we have stored a BGP vrf instance in the
@@ -233,7 +232,6 @@ int bgp_md5_unset(struct peer *peer)
 
 int bgp_set_socket_ttl(struct peer *peer, int bgp_sock)
 {
-	char buf[INET_ADDRSTRLEN];
 	int ret = 0;
 
 	/* In case of peer is EBGP, we should set TTL for this connection.  */
@@ -242,11 +240,8 @@ int bgp_set_socket_ttl(struct peer *peer, int bgp_sock)
 		if (ret) {
 			flog_err(
 				EC_LIB_SOCKET,
-				"%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-				__func__,
-				inet_ntop(AF_INET, &peer->remote_id, buf,
-					  sizeof(buf)),
-				errno);
+				"%s: Can't set TxTTL on peer (rtrid %pI4) socket, err = %d",
+				__func__, &peer->remote_id, errno);
 			return ret;
 		}
 	} else if (peer->gtsm_hops) {
@@ -258,11 +253,8 @@ int bgp_set_socket_ttl(struct peer *peer, int bgp_sock)
 		if (ret) {
 			flog_err(
 				EC_LIB_SOCKET,
-				"%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-				__func__,
-				inet_ntop(AF_INET, &peer->remote_id, buf,
-					  sizeof(buf)),
-				errno);
+				"%s: Can't set TxTTL on peer (rtrid %pI4) socket, err = %d",
+				__func__, &peer->remote_id, errno);
 			return ret;
 		}
 		ret = sockopt_minttl(peer->su.sa.sa_family, bgp_sock,
@@ -270,11 +262,8 @@ int bgp_set_socket_ttl(struct peer *peer, int bgp_sock)
 		if (ret) {
 			flog_err(
 				EC_LIB_SOCKET,
-				"%s: Can't set MinTTL on peer (rtrid %s) socket, err = %d",
-				__func__,
-				inet_ntop(AF_INET, &peer->remote_id, buf,
-					  sizeof(buf)),
-				errno);
+				"%s: Can't set MinTTL on peer (rtrid %pI4) socket, err = %d",
+				__func__, &peer->remote_id, errno);
 			return ret;
 		}
 	}
@@ -386,7 +375,6 @@ static int bgp_accept(struct thread *thread)
 			     accept_sock);
 		return -1;
 	}
-	listener->thread = NULL;
 
 	thread_add_read(bm->master, bgp_accept, listener, accept_sock,
 			&listener->thread);
@@ -453,12 +441,25 @@ static int bgp_accept(struct thread *thread)
 		if (peer1) {
 			/* Dynamic neighbor has been created, let it proceed */
 			peer1->fd = bgp_sock;
+
+			/* Set the user configured MSS to TCP socket */
+			if (CHECK_FLAG(peer1->flags, PEER_FLAG_TCP_MSS))
+				sockopt_tcp_mss_set(bgp_sock, peer1->tcp_mss);
+
 			bgp_fsm_change_status(peer1, Active);
 			BGP_TIMER_OFF(
 				peer1->t_start); /* created in peer_create() */
 
-			if (peer_active(peer1))
-				BGP_EVENT_ADD(peer1, TCP_connection_open);
+			if (peer_active(peer1)) {
+				if (CHECK_FLAG(peer1->flags,
+					       PEER_FLAG_TIMER_DELAYOPEN))
+					BGP_EVENT_ADD(
+						peer1,
+						TCP_connection_open_w_delay);
+				else
+					BGP_EVENT_ADD(peer1,
+						      TCP_connection_open);
+			}
 
 			return 0;
 		}
@@ -546,7 +547,7 @@ static int bgp_accept(struct thread *thread)
 				peer1->host);
 
 	peer = peer_create(&su, peer1->conf_if, peer1->bgp, peer1->local_as,
-			   peer1->as, peer1->as_type, 0, 0, NULL);
+			   peer1->as, peer1->as_type, NULL);
 	hash_release(peer->bgp->peerhash, peer);
 	hash_get(peer->bgp->peerhash, peer, hash_alloc_intern);
 
@@ -570,13 +571,16 @@ static int bgp_accept(struct thread *thread)
 	peer->doppelganger = peer1;
 	peer1->doppelganger = peer;
 	peer->fd = bgp_sock;
-	vrf_bind(peer->bgp->vrf_id, bgp_sock, bgp_get_bound_name(peer));
+	frr_with_privs(&bgpd_privs) {
+		vrf_bind(peer->bgp->vrf_id, bgp_sock, bgp_get_bound_name(peer));
+	}
+	bgp_peer_reg_with_nht(peer);
 	bgp_fsm_change_status(peer, Active);
 	BGP_TIMER_OFF(peer->t_start); /* created in peer_create() */
 
 	SET_FLAG(peer->sflags, PEER_STATUS_ACCEPT_PEER);
 	/* Make dummy peer until read Open packet. */
-	if (peer1->status == Established
+	if (peer_established(peer1)
 	    && CHECK_FLAG(peer1->sflags, PEER_STATUS_NSF_MODE)) {
 		/* If we have an existing established connection with graceful
 		 * restart
@@ -595,7 +599,10 @@ static int bgp_accept(struct thread *thread)
 	}
 
 	if (peer_active(peer)) {
-		BGP_EVENT_ADD(peer, TCP_connection_open);
+		if (CHECK_FLAG(peer->flags, PEER_FLAG_TIMER_DELAYOPEN))
+			BGP_EVENT_ADD(peer, TCP_connection_open_w_delay);
+		else
+			BGP_EVENT_ADD(peer, TCP_connection_open);
 	}
 
 	return 0;
@@ -712,6 +719,10 @@ int bgp_connect(struct peer *peer)
 
 	set_nonblocking(peer->fd);
 
+	/* Set the user configured MSS to TCP socket */
+	if (CHECK_FLAG(peer->flags, PEER_FLAG_TCP_MSS))
+		sockopt_tcp_mss_set(peer->fd, peer->tcp_mss);
+
 	bgp_socket_set_buffer_size(peer->fd);
 
 	if (bgp_set_socket_ttl(peer, peer->fd) < 0)
@@ -733,8 +744,8 @@ int bgp_connect(struct peer *peer)
 
 	if (peer->password) {
 		uint16_t prefixlen = peer->su.sa.sa_family == AF_INET
-					     ? IPV4_MAX_PREFIXLEN
-					     : IPV6_MAX_PREFIXLEN;
+					     ? IPV4_MAX_BITLEN
+					     : IPV6_MAX_BITLEN;
 
 		bgp_md5_set_connect(peer->fd, &peer->su, prefixlen,
 				    peer->password);
@@ -836,7 +847,6 @@ static int bgp_listener(int sock, struct sockaddr *sa, socklen_t salen,
 		listener->bgp = bgp;
 
 	memcpy(&listener->su, sa, salen);
-	listener->thread = NULL;
 	thread_add_read(bm->master, bgp_accept, listener, sock,
 			&listener->thread);
 	listnode_add(bm->listen_sockets, listener);
@@ -884,7 +894,10 @@ int bgp_socket(struct bgp *bgp, unsigned short port, const char *address)
 		frr_with_privs(&bgpd_privs) {
 			sock = vrf_socket(ainfo->ai_family,
 					  ainfo->ai_socktype,
-					  ainfo->ai_protocol, bgp->vrf_id,
+					  ainfo->ai_protocol,
+					  (bgp->inst_type
+					   != BGP_INSTANCE_TYPE_VIEW
+					   ? bgp->vrf_id : VRF_DEFAULT),
 					  (bgp->inst_type
 					   == BGP_INSTANCE_TYPE_VRF
 					   ? bgp->name : NULL));

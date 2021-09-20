@@ -49,11 +49,12 @@
 #include "ospfd/ospf_flood.h"
 #include "ospfd/ospf_abr.h"
 #include "ospfd/ospf_bfd.h"
+#include "ospfd/ospf_gr.h"
 #include "ospfd/ospf_errors.h"
 
 DEFINE_HOOK(ospf_nsm_change,
 	    (struct ospf_neighbor * on, int state, int oldstate),
-	    (on, state, oldstate))
+	    (on, state, oldstate));
 
 static void nsm_clear_adj(struct ospf_neighbor *);
 
@@ -75,10 +76,10 @@ static int ospf_inactivity_timer(struct thread *thread)
 	 */
 	if (!OSPF_GR_IS_ACTIVE_HELPER(nbr))
 		OSPF_NSM_EVENT_SCHEDULE(nbr, NSM_InactivityTimer);
-	else if (IS_DEBUG_OSPF_GR_HELPER)
+	else if (IS_DEBUG_OSPF_GR)
 		zlog_debug(
 			"%s, Acting as HELPER for this neighbour, So inactivitytimer event will not be fired.",
-			__PRETTY_FUNCTION__);
+			__func__);
 
 	return 0;
 }
@@ -727,6 +728,9 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 					ospf_network_lsa_update(oi);
 			}
 		}
+
+		if (state == NSM_Full && oi->ospf->gr_info.restart_in_progress)
+			ospf_gr_check_adjs(oi->ospf);
 	}
 
 	ospf_opaque_nsm_change(nbr, old_state);
@@ -761,7 +765,8 @@ static void nsm_change_state(struct ospf_neighbor *nbr, int state)
 	if (state == NSM_Down)
 		nbr->crypt_seqnum = 0;
 
-	ospf_bfd_trigger_event(nbr, old_state, state);
+	if (nbr->bfd_session)
+		ospf_bfd_trigger_event(nbr, old_state, state);
 
 	/* Preserve old status? */
 }

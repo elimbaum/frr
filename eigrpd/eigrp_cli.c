@@ -29,6 +29,7 @@
 #include "eigrp_structs.h"
 #include "eigrpd.h"
 #include "eigrp_zebra.h"
+#include "eigrp_cli.h"
 
 #ifndef VTYSH_EXTRACT_PL
 #include "eigrpd/eigrp_cli_clippy.c"
@@ -78,7 +79,7 @@ DEFPY_YANG(
 		 as_str, vrf ? vrf : VRF_DEFAULT_NAME);
 
 	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
-	return nb_cli_apply_changes(vty, NULL);
+	return nb_cli_apply_changes_clear_pending(vty, NULL);
 }
 
 void eigrp_cli_show_header(struct vty *vty, struct lyd_node *dnode,
@@ -670,7 +671,7 @@ DEFPY_YANG(
 		 as_str);
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 
-	snprintf(xpath_auth, sizeof(xpath_auth), "%s/summarize-address", xpath);
+	snprintf(xpath_auth, sizeof(xpath_auth), "%s/summarize-addresses", xpath);
 	nb_cli_enqueue_change(vty, xpath_auth, NB_OP_CREATE, prefix_str);
 
 	return nb_cli_apply_changes(vty, NULL);
@@ -693,7 +694,7 @@ DEFPY_YANG(
 		 as_str);
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 
-	snprintf(xpath_auth, sizeof(xpath_auth), "%s/summarize-address", xpath);
+	snprintf(xpath_auth, sizeof(xpath_auth), "%s/summarize-addresses", xpath);
 	nb_cli_enqueue_change(vty, xpath_auth, NB_OP_DESTROY, prefix_str);
 
 	return nb_cli_apply_changes(vty, NULL);
@@ -702,12 +703,12 @@ DEFPY_YANG(
 void eigrp_cli_show_summarize_address(struct vty *vty, struct lyd_node *dnode,
 				      bool show_defaults)
 {
-	const struct eigrp_interface *eif = nb_running_get_entry(dnode, NULL,
-								 true);
+	const struct lyd_node *instance = yang_dnode_get_parent(dnode, "instance");
+	uint16_t asn = yang_dnode_get_uint16(instance, "./asn");
 	const char *summarize_address = yang_dnode_get_string(dnode, NULL);
 
-	vty_out(vty, " ip summary-address eigrp %d %s\n",
-		eif->eigrp->AS, summarize_address);
+	vty_out(vty, " ip summary-address eigrp %d %s\n", asn,
+		summarize_address);
 }
 
 /*
@@ -766,12 +767,11 @@ DEFPY_YANG(
 void eigrp_cli_show_authentication(struct vty *vty, struct lyd_node *dnode,
 				   bool show_defaults)
 {
-	const struct eigrp_interface *eif = nb_running_get_entry(dnode, NULL,
-								 true);
+	const struct lyd_node *instance = yang_dnode_get_parent(dnode, "instance");
+	uint16_t asn = yang_dnode_get_uint16(instance, "./asn");
 	const char *crypt = yang_dnode_get_string(dnode, NULL);
 
-	vty_out(vty, " ip authentication mode eigrp %d %s\n",
-		eif->eigrp->AS, crypt);
+	vty_out(vty, " ip authentication mode eigrp %d %s\n", asn, crypt);
 }
 
 /*
@@ -826,12 +826,12 @@ DEFPY_YANG(
 void eigrp_cli_show_keychain(struct vty *vty, struct lyd_node *dnode,
 			     bool show_defaults)
 {
-	const struct eigrp_interface *eif = nb_running_get_entry(dnode, NULL,
-								 true);
+	const struct lyd_node *instance = yang_dnode_get_parent(dnode, "instance");
+	uint16_t asn = yang_dnode_get_uint16(instance, "./asn");
 	const char *keychain = yang_dnode_get_string(dnode, NULL);
 
-	vty_out(vty, " ip authentication key-chain eigrp %d %s\n",
-		eif->eigrp->AS, keychain);
+	vty_out(vty, " ip authentication key-chain eigrp %d %s\n", asn,
+		keychain);
 }
 
 
@@ -880,7 +880,7 @@ static int eigrp_write_interface(struct vty *vty)
 
 	RB_FOREACH(vrf, vrf_name_head, &vrfs_by_name) {
 		FOR_ALL_INTERFACES(vrf, ifp) {
-			dnode = yang_dnode_get(
+			dnode = yang_dnode_getf(
 				running_config->dnode,
 				"/frr-interface:lib/interface[name='%s'][vrf='%s']",
 				ifp->name, vrf->name);
@@ -918,6 +918,8 @@ eigrp_cli_init(void)
 	install_element(EIGRP_NODE, &eigrp_network_cmd);
 	install_element(EIGRP_NODE, &eigrp_neighbor_cmd);
 	install_element(EIGRP_NODE, &eigrp_redistribute_source_metric_cmd);
+
+	vrf_cmd_init(NULL, &eigrpd_privs);
 
 	install_node(&eigrp_interface_node);
 	if_cmd_init();

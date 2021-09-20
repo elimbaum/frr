@@ -22,7 +22,7 @@
 #ifndef _ZEBRA_OSPF_NEIGHBOR_H
 #define _ZEBRA_OSPF_NEIGHBOR_H
 
-#include <ospfd/ospf_gr_helper.h>
+#include <ospfd/ospf_gr.h>
 #include <ospfd/ospf_packet.h>
 
 /* Neighbor Data Structure */
@@ -88,7 +88,7 @@ struct ospf_neighbor {
 	uint32_t state_change;		 /* NSM state change counter       */
 
 	/* BFD information */
-	void *bfd_info;
+	struct bfd_session_params *bfd_session;
 
 	/* ospf graceful restart HELPER info */
 	struct ospf_helper_info gr_helper_info;

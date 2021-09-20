@@ -411,7 +411,8 @@ static void bgp_path_info_mpath_lb_update(struct bgp_path_info *path, bool set,
 {
 	struct bgp_path_info_mpath *mpath;
 
-	if ((mpath = path->mpath) == NULL) {
+	mpath = path->mpath;
+	if (mpath == NULL) {
 		if (!set || (cum_bw == 0 && !all_paths_lb))
 			return;
 
@@ -519,7 +520,6 @@ void bgp_path_info_mpath_update(struct bgp_dest *dest,
 	struct listnode *mp_node, *mp_next_node;
 	struct bgp_path_info *cur_mpath, *new_mpath, *next_mpath, *prev_mpath;
 	int mpath_changed, debug;
-	char nh_buf[2][INET6_ADDRSTRLEN];
 	bool all_paths_lb;
 	char path_buf[PATH_ADDPATH_STR_BUFFER];
 
@@ -616,7 +616,8 @@ void bgp_path_info_mpath_update(struct bgp_dest *dest,
 					all_paths_lb = false;
 				if (debug) {
 					bgp_path_info_path_with_addpath_rx_str(
-						cur_mpath, path_buf);
+						cur_mpath, path_buf,
+						sizeof(path_buf));
 					zlog_debug(
 						"%pRN: %s is still multipath, cur count %d",
 						bgp_dest_to_rnode(dest),
@@ -626,16 +627,13 @@ void bgp_path_info_mpath_update(struct bgp_dest *dest,
 				mpath_changed = 1;
 				if (debug) {
 					bgp_path_info_path_with_addpath_rx_str(
-						cur_mpath, path_buf);
+						cur_mpath, path_buf,
+						sizeof(path_buf));
 					zlog_debug(
-						"%pRN: remove mpath %s nexthop %s, cur count %d",
+						"%pRN: remove mpath %s nexthop %pI4, cur count %d",
 						bgp_dest_to_rnode(dest),
 						path_buf,
-						inet_ntop(AF_INET,
-							  &cur_mpath->attr
-								   ->nexthop,
-							  nh_buf[0],
-							  sizeof(nh_buf[0])),
+						&cur_mpath->attr->nexthop,
 						mpath_count);
 				}
 			}
@@ -660,14 +658,11 @@ void bgp_path_info_mpath_update(struct bgp_dest *dest,
 			mpath_changed = 1;
 			if (debug) {
 				bgp_path_info_path_with_addpath_rx_str(
-					cur_mpath, path_buf);
+					cur_mpath, path_buf, sizeof(path_buf));
 				zlog_debug(
-					"%pRN: remove mpath %s nexthop %s, cur count %d",
+					"%pRN: remove mpath %s nexthop %pI4, cur count %d",
 					bgp_dest_to_rnode(dest), path_buf,
-					inet_ntop(AF_INET,
-						  &cur_mpath->attr->nexthop,
-						  nh_buf[0], sizeof(nh_buf[0])),
-					mpath_count);
+					&cur_mpath->attr->nexthop, mpath_count);
 			}
 			cur_mpath = next_mpath;
 		} else {
@@ -710,16 +705,13 @@ void bgp_path_info_mpath_update(struct bgp_dest *dest,
 					all_paths_lb = false;
 				if (debug) {
 					bgp_path_info_path_with_addpath_rx_str(
-						new_mpath, path_buf);
+						new_mpath, path_buf,
+						sizeof(path_buf));
 					zlog_debug(
-						"%pRN: add mpath %s nexthop %s, cur count %d",
+						"%pRN: add mpath %s nexthop %pI4, cur count %d",
 						bgp_dest_to_rnode(dest),
 						path_buf,
-						inet_ntop(AF_INET,
-							  &new_mpath->attr
-								   ->nexthop,
-							  nh_buf[0],
-							  sizeof(nh_buf[0])),
+						&new_mpath->attr->nexthop,
 						mpath_count);
 				}
 			}

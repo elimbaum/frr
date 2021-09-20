@@ -42,6 +42,7 @@
 
 #include "zebra/zebra_fpm_private.h"
 #include "zebra/zebra_vxlan_private.h"
+#include "zebra/interface.h"
 
 /*
  * af_addr_size
@@ -133,6 +134,7 @@ struct netlink_nh_info {
  * A structure for holding information for a netlink route message.
  */
 struct netlink_route_info {
+	uint32_t nlmsg_pid;
 	uint16_t nlmsg_type;
 	uint8_t rtm_type;
 	uint32_t rtm_table;
@@ -163,7 +165,10 @@ static int netlink_route_info_add_nh(struct netlink_route_info *ri,
 {
 	struct netlink_nh_info nhi;
 	union g_addr *src;
-	zebra_l3vni_t *zl3vni = NULL;
+	struct zebra_vrf *zvrf = NULL;
+	struct interface *ifp = NULL, *link_if = NULL;
+	struct zebra_if *zif = NULL;
+	vni_t vni = 0;
 
 	memset(&nhi, 0, sizeof(nhi));
 	src = NULL;
@@ -198,12 +203,29 @@ static int netlink_route_info_add_nh(struct netlink_route_info *ri,
 	if (re && CHECK_FLAG(re->flags, ZEBRA_FLAG_EVPN_ROUTE)) {
 		nhi.encap_info.encap_type = FPM_NH_ENCAP_VXLAN;
 
-		zl3vni = zl3vni_from_vrf(nexthop->vrf_id);
-		if (zl3vni && is_l3vni_oper_up(zl3vni)) {
-
-			/* Add VNI to VxLAN encap info */
-			nhi.encap_info.vxlan_encap.vni = zl3vni->vni;
+		/* Extract VNI id for the nexthop SVI interface */
+		zvrf = zebra_vrf_lookup_by_id(nexthop->vrf_id);
+		if (zvrf) {
+			ifp = if_lookup_by_index_per_ns(zvrf->zns,
+							nexthop->ifindex);
+			if (ifp) {
+				zif = (struct zebra_if *)ifp->info;
+				if (zif) {
+					if (IS_ZEBRA_IF_BRIDGE(ifp))
+						link_if = ifp;
+					else if (IS_ZEBRA_IF_VLAN(ifp))
+						link_if =
+						if_lookup_by_index_per_ns(
+							zvrf->zns,
+							zif->link_ifindex);
+					if (link_if)
+						vni = vni_id_from_svi(ifp,
+								      link_if);
+				}
+			}
 		}
+
+		nhi.encap_info.vxlan_encap.vni = vni;
 	}
 
 	/*
@@ -244,14 +266,20 @@ static int netlink_route_info_fill(struct netlink_route_info *ri, int cmd,
 				   rib_dest_t *dest, struct route_entry *re)
 {
 	struct nexthop *nexthop;
+	struct rib_table_info *table_info =
+		rib_table_info(rib_dest_table(dest));
+	struct zebra_vrf *zvrf = table_info->zvrf;
 
 	memset(ri, 0, sizeof(*ri));
 
 	ri->prefix = rib_dest_prefix(dest);
 	ri->af = rib_dest_af(dest);
 
+	if (zvrf && zvrf->zns)
+		ri->nlmsg_pid = zvrf->zns->netlink_dplane.snl.nl_pid;
+
 	ri->nlmsg_type = cmd;
-	ri->rtm_table = rib_table_info(rib_dest_table(dest))->table_id;
+	ri->rtm_table = table_info->table_id;
 	ri->rtm_protocol = RTPROT_UNSPEC;
 
 	/*
@@ -357,6 +385,7 @@ static int netlink_route_info_encode(struct netlink_route_info *ri,
 
 	req->n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
 	req->n.nlmsg_flags = NLM_F_CREATE | NLM_F_REQUEST;
+	req->n.nlmsg_pid = ri->nlmsg_pid;
 	req->n.nlmsg_type = ri->nlmsg_type;
 	req->r.rtm_family = ri->af;
 
@@ -492,9 +521,8 @@ static void zfpm_log_route_info(struct netlink_route_info *ri,
 	unsigned int i;
 	char buf[PREFIX_STRLEN];
 
-	zfpm_debug("%s : %s %s, Proto: %s, Metric: %u", label,
-		   nl_msg_type_to_str(ri->nlmsg_type),
-		   prefix2str(ri->prefix, buf, sizeof(buf)),
+	zfpm_debug("%s : %s %pFX, Proto: %s, Metric: %u", label,
+		   nl_msg_type_to_str(ri->nlmsg_type), ri->prefix,
 		   nl_rtproto_to_str(ri->rtm_protocol),
 		   ri->metric ? *ri->metric : 0);
 
@@ -549,7 +577,6 @@ int zfpm_netlink_encode_route(int cmd, rib_dest_t *dest, struct route_entry *re,
 int zfpm_netlink_encode_mac(struct fpm_mac_info_t *mac, char *in_buf,
 			    size_t in_buf_len)
 {
-	char buf1[ETHER_ADDR_STRLEN];
 	size_t buf_offset;
 
 	struct macmsg {
@@ -592,11 +619,10 @@ int zfpm_netlink_encode_mac(struct fpm_mac_info_t *mac, char *in_buf,
 
 	assert(req->hdr.nlmsg_len < in_buf_len);
 
-	zfpm_debug("Tx %s family %s ifindex %u MAC %s DEST %pI4",
+	zfpm_debug("Tx %s family %s ifindex %u MAC %pEA DEST %pI4",
 		   nl_msg_type_to_str(req->hdr.nlmsg_type),
 		   nl_family_to_str(req->ndm.ndm_family), req->ndm.ndm_ifindex,
-		   prefix_mac2str(&mac->macaddr, buf1, sizeof(buf1)),
-		   &mac->r_vtep_ip);
+		   &mac->macaddr, &mac->r_vtep_ip);
 
 	return req->hdr.nlmsg_len;
 }

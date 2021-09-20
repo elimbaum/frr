@@ -18,9 +18,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "bgpd/bgp_conditional_adv.h"
+#include <zebra.h>
 
-const char *get_afi_safi_str(afi_t afi, safi_t safi, bool for_json);
+#include "bgpd/bgp_conditional_adv.h"
+#include "bgpd/bgp_vty.h"
 
 static route_map_result_t
 bgp_check_rmap_prefixes_in_bgp_table(struct bgp_table *table,
@@ -183,7 +184,7 @@ static int bgp_conditional_adv_timer(struct thread *t)
 	assert(bgp);
 
 	thread_add_timer(bm->master, bgp_conditional_adv_timer, bgp,
-			 CONDITIONAL_ROUTES_POLL_TIME, &bgp->t_condition_check);
+			 bgp->condition_check_period, &bgp->t_condition_check);
 
 	/* loop through each peer and advertise or withdraw routes if
 	 * advertise-map is configured and prefix(es) in condition-map
@@ -194,14 +195,10 @@ static int bgp_conditional_adv_timer(struct thread *t)
 		if (!CHECK_FLAG(peer->flags, PEER_FLAG_CONFIG_NODE))
 			continue;
 
-		if (peer->status != Established)
+		if (!peer_established(peer))
 			continue;
 
 		FOREACH_AFI_SAFI (afi, safi) {
-			if (strmatch(get_afi_safi_str(afi, safi, true),
-				     "Unknown"))
-				continue;
-
 			if (!peer->afc_nego[afi][safi])
 				continue;
 
@@ -318,7 +315,7 @@ void bgp_conditional_adv_enable(struct peer *peer, afi_t afi, safi_t safi)
 
 	/* Register for conditional routes polling timer */
 	thread_add_timer(bm->master, bgp_conditional_adv_timer, bgp,
-			 CONDITIONAL_ROUTES_POLL_TIME, &bgp->t_condition_check);
+			 bgp->condition_check_period, &bgp->t_condition_check);
 }
 
 void bgp_conditional_adv_disable(struct peer *peer, afi_t afi, safi_t safi)

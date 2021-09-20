@@ -27,6 +27,7 @@
 #include "log.h"
 #include "lde.h"
 #include "ldp_debug.h"
+#include "rlfa.h"
 
 #include <lib/log.h>
 #include "memory.h"
@@ -73,6 +74,7 @@ struct ldpd_conf	*ldeconf;
 struct nbr_tree		 lde_nbrs = RB_INITIALIZER(&lde_nbrs);
 
 static struct imsgev	*iev_ldpe;
+static struct imsgev    iev_main_sync_data;
 static struct imsgev	*iev_main, *iev_main_sync;
 
 /* lde privileges */
@@ -125,15 +127,15 @@ static struct quagga_signal_t lde_signals[] =
 void
 lde(void)
 {
-	struct thread		 thread;
-
 #ifdef HAVE_SETPROCTITLE
 	setproctitle("label decision engine");
 #endif
 	ldpd_process = PROC_LDE_ENGINE;
 	log_procname = log_procnames[PROC_LDE_ENGINE];
 
-	master = thread_master_create(NULL);
+	master = frr_init();
+	/* no frr_config_fork() here, allow frr_pthread to create threads */
+	frr_is_after_fork = true;
 
 	/* setup signal handler */
 	signal_init(master, array_size(lde_signals), lde_signals);
@@ -148,16 +150,19 @@ lde(void)
 		        &iev_main->ev_read);
 	iev_main->handler_write = ldp_write_handler;
 
-	if ((iev_main_sync = calloc(1, sizeof(struct imsgev))) == NULL)
-		fatal(NULL);
+	memset(&iev_main_sync_data, 0, sizeof(iev_main_sync_data));
+	iev_main_sync = &iev_main_sync_data;
 	imsg_init(&iev_main_sync->ibuf, LDPD_FD_SYNC);
 
 	/* create base configuration */
 	ldeconf = config_new_empty();
 
-	/* Fetch next active thread. */
+	struct thread thread;
 	while (thread_fetch(master, &thread))
 		thread_call(&thread);
+
+	/* NOTREACHED */
+	return;
 }
 
 void
@@ -203,7 +208,6 @@ lde_shutdown(void)
 	if (iev_ldpe)
 		free(iev_ldpe);
 	free(iev_main);
-	free(iev_main_sync);
 
 	log_info("label decision engine exiting");
 
@@ -444,6 +448,10 @@ lde_dispatch_parent(struct thread *thread)
 	int			 shut = 0;
 	struct fec		 fec;
 	struct ldp_access	*laccess;
+	struct ldp_rlfa_node	 *rnode, *rntmp;
+	struct ldp_rlfa_client	 *rclient;
+	struct zapi_rlfa_request *rlfa_req;
+	struct zapi_rlfa_igp	 *rlfa_igp;
 
 	iev->ev_read = NULL;
 
@@ -561,6 +569,9 @@ lde_dispatch_parent(struct thread *thread)
 			memcpy(&init, imsg.data, sizeof(init));
 			lde_init(&init);
 			break;
+		case IMSG_AGENTX_ENABLED:
+			ldp_agentx_enabled();
+			break;
 		case IMSG_RECONF_CONF:
 			if ((nconf = malloc(sizeof(struct ldpd_conf))) ==
 			    NULL)
@@ -650,6 +661,42 @@ lde_dispatch_parent(struct thread *thread)
 			lde_check_filter_af(AF_INET6, &ldeconf->ipv6,
 				laccess->name);
 			break;
+		case IMSG_RLFA_REG:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(struct zapi_rlfa_request)) {
+				log_warnx("%s: wrong imsg len", __func__);
+				break;
+			}
+			rlfa_req = imsg.data;
+			rnode = rlfa_node_find(&rlfa_req->destination,
+					       rlfa_req->pq_address);
+			if (!rnode)
+				rnode = rlfa_node_new(&rlfa_req->destination,
+						      rlfa_req->pq_address);
+			rclient = rlfa_client_find(rnode, &rlfa_req->igp);
+			if (rclient)
+				/* RLFA already registered - do nothing */
+				break;
+			rclient = rlfa_client_new(rnode, &rlfa_req->igp);
+			lde_rlfa_check(rclient);
+			break;
+		case IMSG_RLFA_UNREG_ALL:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(struct zapi_rlfa_igp)) {
+				log_warnx("%s: wrong imsg len", __func__);
+				break;
+			}
+			rlfa_igp = imsg.data;
+
+			RB_FOREACH_SAFE (rnode, ldp_rlfa_node_head,
+					 &rlfa_node_tree, rntmp) {
+				rclient = rlfa_client_find(rnode, rlfa_igp);
+				if (!rclient)
+					continue;
+
+				rlfa_client_del(rclient);
+			}
+			break;
 		default:
 			log_debug("%s: unexpected imsg %d", __func__,
 			    imsg.hdr.type);
@@ -704,8 +751,8 @@ lde_update_label(struct fec_node *fn)
 	/* should we allocate a label for this fec? */
 	switch (fn->fec.type) {
 	case FEC_TYPE_IPV4:
-		if ((ldeconf->ipv4.flags & F_LDPD_AF_ALLOCHOSTONLY) &&
-		    fn->fec.u.ipv4.prefixlen != 32)
+		if ((ldeconf->ipv4.flags & F_LDPD_AF_ALLOCHOSTONLY)
+		    && fn->fec.u.ipv4.prefixlen != IPV4_MAX_BITLEN)
 			return (NO_LABEL);
 		if (lde_acl_check(ldeconf->ipv4.acl_label_allocate_for,
 		    AF_INET, (union ldpd_addr *)&fn->fec.u.ipv4.prefix,
@@ -713,8 +760,8 @@ lde_update_label(struct fec_node *fn)
 			return (NO_LABEL);
 		break;
 	case FEC_TYPE_IPV6:
-		if ((ldeconf->ipv6.flags & F_LDPD_AF_ALLOCHOSTONLY) &&
-		    fn->fec.u.ipv6.prefixlen != 128)
+		if ((ldeconf->ipv6.flags & F_LDPD_AF_ALLOCHOSTONLY)
+		    && fn->fec.u.ipv6.prefixlen != IPV6_MAX_BITLEN)
 			return (NO_LABEL);
 		if (lde_acl_check(ldeconf->ipv6.acl_label_allocate_for,
 		    AF_INET6, (union ldpd_addr *)&fn->fec.u.ipv6.prefix,
@@ -871,6 +918,48 @@ lde_send_delete_klabel(struct fec_node *fn, struct fec_nh *fnh)
 		zpw.local_label = fn->local_label;
 		zpw.remote_label = fnh->remote_label;
 		lde_imsg_compose_parent(IMSG_KPW_UNSET, 0, &zpw, sizeof(zpw));
+		break;
+	}
+}
+
+void
+lde_fec2prefix(const struct fec *fec, struct prefix *prefix)
+{
+	memset(prefix, 0, sizeof(*prefix));
+	switch (fec->type) {
+	case FEC_TYPE_IPV4:
+		prefix->family = AF_INET;
+		prefix->u.prefix4 = fec->u.ipv4.prefix;
+		prefix->prefixlen = fec->u.ipv4.prefixlen;
+		break;
+	case FEC_TYPE_IPV6:
+		prefix->family = AF_INET6;
+		prefix->u.prefix6 = fec->u.ipv6.prefix;
+		prefix->prefixlen = fec->u.ipv6.prefixlen;
+		break;
+	default:
+		prefix->family = AF_UNSPEC;
+		break;
+	}
+}
+
+void
+lde_prefix2fec(const struct prefix *prefix, struct fec *fec)
+{
+	memset(fec, 0, sizeof(*fec));
+	switch (prefix->family) {
+	case AF_INET:
+		fec->type = FEC_TYPE_IPV4;
+		fec->u.ipv4.prefix = prefix->u.prefix4;
+		fec->u.ipv4.prefixlen = prefix->prefixlen;
+		break;
+	case AF_INET6:
+		fec->type = FEC_TYPE_IPV6;
+		fec->u.ipv6.prefix = prefix->u.prefix6;
+		fec->u.ipv6.prefixlen = prefix->prefixlen;
+		break;
+	default:
+		fatalx("lde_prefix2fec: unknown af");
 		break;
 	}
 }
@@ -1388,6 +1477,9 @@ lde_nbr_del(struct lde_nbr *ln)
 	RB_FOREACH(f, fec_tree, &ft) {
 		fn = (struct fec_node *)f;
 
+		/* Update RLFA clients. */
+		lde_rlfa_update_clients(f, ln, MPLS_INVALID_LABEL);
+
 		LIST_FOREACH(fnh, &fn->nexthops, entry) {
 			switch (f->type) {
 			case FEC_TYPE_IPV4:
@@ -1534,6 +1626,30 @@ lde_nbr_addr_update(struct lde_nbr *ln, struct lde_addr *lde_addr, int removed)
 				lde_send_change_klabel(fn, fnh);
 			}
 			break;
+		}
+	}
+}
+
+void
+lde_allow_broken_lsp_update(int new_config)
+{
+	struct fec_node		*fn;
+	struct fec_nh		*fnh;
+	struct fec		*f;
+
+	RB_FOREACH(f, fec_tree, &ft) {
+		fn = (struct fec_node *)f;
+
+		LIST_FOREACH(fnh, &fn->nexthops, entry) {
+			/* allow-broken-lsp config is changing so
+			 * we need to reprogram labeled routes to
+			 * have proper top-level label
+			 */
+			if (!(new_config & F_LDPD_ALLOW_BROKEN_LSP))
+				lde_send_delete_klabel(fn, fnh);
+
+			if (fn->local_label != NO_LABEL)
+				lde_send_change_klabel(fn, fnh);
 		}
 	}
 }

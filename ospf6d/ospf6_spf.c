@@ -37,11 +37,15 @@
 #include "ospf6_area.h"
 #include "ospf6_proto.h"
 #include "ospf6_abr.h"
+#include "ospf6_asbr.h"
 #include "ospf6_spf.h"
 #include "ospf6_intra.h"
 #include "ospf6_interface.h"
 #include "ospf6d.h"
 #include "ospf6_abr.h"
+#include "ospf6_nssa.h"
+
+DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_VERTEX, "OSPF6 vertex");
 
 unsigned char conf_debug_ospf6_spf = 0;
 
@@ -86,7 +90,7 @@ static int ospf6_vertex_cmp(const struct ospf6_vertex *va,
 	return 0;
 }
 DECLARE_SKIPLIST_NONUNIQ(vertex_pqueue, struct ospf6_vertex, pqi,
-		ospf6_vertex_cmp)
+		ospf6_vertex_cmp);
 
 static int ospf6_vertex_id_cmp(void *a, void *b)
 {
@@ -221,21 +225,25 @@ static char *ospf6_lsdesc_backlink(struct ospf6_lsa *lsa, caddr_t lsdesc,
 		assert(!(OSPF6_LSA_IS_TYPE(NETWORK, lsa)
 			 && VERTEX_IS_TYPE(NETWORK, v)));
 
-		if (OSPF6_LSA_IS_TYPE(NETWORK, lsa)
-		    && NETWORK_LSDESC_GET_NBR_ROUTERID(backlink)
-			       == v->lsa->header->adv_router)
-			found = backlink;
-		else if (VERTEX_IS_TYPE(NETWORK, v)
-			 && ROUTER_LSDESC_IS_TYPE(TRANSIT_NETWORK, backlink)
-			 && ROUTER_LSDESC_GET_NBR_ROUTERID(backlink)
-				    == v->lsa->header->adv_router
-			 && ROUTER_LSDESC_GET_NBR_IFID(backlink)
-				    == ntohl(v->lsa->header->id))
-			found = backlink;
-		else {
+		if (OSPF6_LSA_IS_TYPE(NETWORK, lsa)) {
+			if (NETWORK_LSDESC_GET_NBR_ROUTERID(backlink)
+			    == v->lsa->header->adv_router)
+				found = backlink;
+		} else if (VERTEX_IS_TYPE(NETWORK, v)) {
+			if (ROUTER_LSDESC_IS_TYPE(TRANSIT_NETWORK, backlink)
+			    && ROUTER_LSDESC_GET_NBR_ROUTERID(backlink)
+				       == v->lsa->header->adv_router
+			    && ROUTER_LSDESC_GET_NBR_IFID(backlink)
+				       == ntohl(v->lsa->header->id))
+				found = backlink;
+		} else {
+			assert(OSPF6_LSA_IS_TYPE(ROUTER, lsa)
+			       && VERTEX_IS_TYPE(ROUTER, v));
+
 			if (!ROUTER_LSDESC_IS_TYPE(POINTTOPOINT, backlink)
 			    || !ROUTER_LSDESC_IS_TYPE(POINTTOPOINT, lsdesc))
 				continue;
+
 			if (ROUTER_LSDESC_GET_NBR_IFID(backlink)
 				    != ROUTER_LSDESC_GET_IFID(lsdesc)
 			    || ROUTER_LSDESC_GET_NBR_IFID(lsdesc)
@@ -280,9 +288,7 @@ static void ospf6_nexthop_calc(struct ospf6_vertex *w, struct ospf6_vertex *v,
 
 	oi = ospf6_interface_lookup_by_ifindex(ifindex, ospf6->vrf_id);
 	if (oi == NULL) {
-		if (IS_OSPF6_DEBUG_SPF(PROCESS))
-			zlog_debug("Can't find interface in SPF: ifindex %d",
-				   ifindex);
+		zlog_warn("Can't find interface in SPF: ifindex %d", ifindex);
 		return;
 	}
 
@@ -316,8 +322,7 @@ static void ospf6_nexthop_calc(struct ospf6_vertex *w, struct ospf6_vertex *v,
 }
 
 static int ospf6_spf_install(struct ospf6_vertex *v,
-			     struct ospf6_route_table *result_table,
-			     struct ospf6 *ospf6)
+			     struct ospf6_route_table *result_table)
 {
 	struct ospf6_route *route, *parent_route;
 	struct ospf6_vertex *prev;
@@ -369,7 +374,7 @@ static int ospf6_spf_install(struct ospf6_vertex *v,
 	   up to here. */
 	assert(route == NULL);
 
-	route = ospf6_route_create();
+	route = ospf6_route_create(v->area->ospf6);
 	memcpy(&route->prefix, &v->vertex_id, sizeof(struct prefix));
 	route->type = OSPF6_DEST_TYPE_LINKSTATE;
 	route->path.type = OSPF6_PATH_TYPE_INTRA;
@@ -417,12 +422,11 @@ static int ospf6_spf_install(struct ospf6_vertex *v,
 		listnode_add_sort(v->parent->child_list, v);
 	route->route_option = v;
 
-	ospf6_route_add(route, result_table, ospf6);
+	ospf6_route_add(route, result_table);
 	return 0;
 }
 
-void ospf6_spf_table_finish(struct ospf6_route_table *result_table,
-			    struct ospf6 *ospf6)
+void ospf6_spf_table_finish(struct ospf6_route_table *result_table)
 {
 	struct ospf6_route *route, *nroute;
 	struct ospf6_vertex *v;
@@ -430,13 +434,12 @@ void ospf6_spf_table_finish(struct ospf6_route_table *result_table,
 		nroute = ospf6_route_next(route);
 		v = (struct ospf6_vertex *)route->route_option;
 		ospf6_vertex_delete(v);
-		ospf6_route_remove(route, result_table, ospf6);
+		ospf6_route_remove(route, result_table);
 	}
 }
 
-static const char *const ospf6_spf_reason_str[] = {
-	"R+", "R-", "N+", "N-", "L+", "L-", "R*", "N*",
-};
+static const char *const ospf6_spf_reason_str[] = {"R+", "R-", "N+", "N-", "L+",
+						   "L-", "R*", "N*", "C"};
 
 void ospf6_spf_reason_string(unsigned int reason, char *buf, int size)
 {
@@ -468,15 +471,13 @@ void ospf6_spf_calculation(uint32_t router_id,
 	struct ospf6_lsa *lsa;
 	struct in6_addr address;
 
-	ospf6_spf_table_finish(result_table, oa->ospf6);
+	ospf6_spf_table_finish(result_table);
 
 	/* Install the calculating router itself as the root of the SPF tree */
 	/* construct root vertex */
 	lsa = ospf6_create_single_router_lsa(oa, oa->lsdb_self, router_id);
 	if (lsa == NULL) {
-		if (IS_OSPF6_DEBUG_SPF(PROCESS))
-			zlog_debug("%s: No router LSA for area %s", __func__,
-				   oa->name);
+		zlog_warn("%s: No router LSA for area %s", __func__, oa->name);
 		return;
 	}
 
@@ -497,7 +498,7 @@ void ospf6_spf_calculation(uint32_t router_id,
 	while ((v = vertex_pqueue_pop(&candidate_list))) {
 		/* installing may result in merging or rejecting of the vertex
 		 */
-		if (ospf6_spf_install(v, result_table, oa->ospf6) < 0)
+		if (ospf6_spf_install(v, result_table) < 0)
 			continue;
 
 		/* Skip overloaded routers */
@@ -604,7 +605,7 @@ static int ospf6_spf_calculation_thread(struct thread *t)
 	monotime(&start);
 	ospf6->ts_spf = start;
 
-	if (ospf6_is_router_abr(ospf6))
+	if (ospf6_check_and_set_router_abr(ospf6))
 		ospf6_abr_range_reset_cost(ospf6);
 
 	for (ALL_LIST_ELEMENTS_RO(ospf6->area_list, node, oa)) {
@@ -641,7 +642,10 @@ static int ospf6_spf_calculation_thread(struct thread *t)
 		areas_processed++;
 	}
 
-	if (ospf6_is_router_abr(ospf6))
+	/* External LSA calculation */
+	ospf6_ase_calculate_timer_add(ospf6);
+
+	if (ospf6_check_and_set_router_abr(ospf6))
 		ospf6_abr_defaults_to_stub(ospf6);
 
 	monotime(&end);
@@ -652,14 +656,10 @@ static int ospf6_spf_calculation_thread(struct thread *t)
 	ospf6_spf_reason_string(ospf6->spf_reason, rbuf, sizeof(rbuf));
 
 	if (IS_OSPF6_DEBUG_SPF(PROCESS) || IS_OSPF6_DEBUG_SPF(TIME))
-		zlog_debug("SPF runtime: %lld sec %lld usec",
-			   (long long)runtime.tv_sec,
-			   (long long)runtime.tv_usec);
-
-	zlog_info(
-		"SPF processing: # Areas: %d, SPF runtime: %lld sec %lld usec, Reason: %s\n",
-		areas_processed, (long long)runtime.tv_sec,
-		(long long)runtime.tv_usec, rbuf);
+		zlog_debug(
+			"SPF processing: # Areas: %d, SPF runtime: %lld sec %lld usec, Reason: %s",
+			areas_processed, (long long)runtime.tv_sec,
+			(long long)runtime.tv_usec, rbuf);
 
 	ospf6->last_spf_reason = ospf6->spf_reason;
 	ospf6_reset_spf_reason(ospf6);
@@ -721,9 +721,7 @@ void ospf6_spf_schedule(struct ospf6 *ospf6, unsigned int reason)
 	}
 
 	if (IS_OSPF6_DEBUG_SPF(PROCESS) || IS_OSPF6_DEBUG_SPF(TIME))
-		zlog_debug("SPF: calculation timer delay = %ld", delay);
-
-	zlog_info("SPF: Scheduled in %ld msec", delay);
+		zlog_debug("SPF: Rescheduling in %ld msec", delay);
 
 	ospf6->t_spf_calc = NULL;
 	thread_add_timer_msec(master, ospf6_spf_calculation_thread, ospf6,
@@ -731,16 +729,24 @@ void ospf6_spf_schedule(struct ospf6 *ospf6, unsigned int reason)
 }
 
 void ospf6_spf_display_subtree(struct vty *vty, const char *prefix, int rest,
-			       struct ospf6_vertex *v)
+			       struct ospf6_vertex *v, json_object *json_obj,
+			       bool use_json)
 {
 	struct listnode *node, *nnode;
 	struct ospf6_vertex *c;
 	char *next_prefix;
 	int len;
 	int restnum;
+	json_object *json_childs = NULL;
+	json_object *json_child = NULL;
 
-	/* "prefix" is the space prefix of the display line */
-	vty_out(vty, "%s+-%s [%d]\n", prefix, v->name, v->cost);
+	if (use_json) {
+		json_childs = json_object_new_object();
+		json_object_int_add(json_obj, "cost", v->cost);
+	} else {
+		/* "prefix" is the space prefix of the display line */
+		vty_out(vty, "%s+-%s [%d]\n", prefix, v->name, v->cost);
+	}
 
 	len = strlen(prefix) + 4;
 	next_prefix = (char *)malloc(len);
@@ -752,10 +758,27 @@ void ospf6_spf_display_subtree(struct vty *vty, const char *prefix, int rest,
 
 	restnum = listcount(v->child_list);
 	for (ALL_LIST_ELEMENTS(v->child_list, node, nnode, c)) {
-		restnum--;
-		ospf6_spf_display_subtree(vty, next_prefix, restnum, c);
-	}
+		if (use_json)
+			json_child = json_object_new_object();
+		else
+			restnum--;
 
+		ospf6_spf_display_subtree(vty, next_prefix, restnum, c,
+					  json_child, use_json);
+
+		if (use_json)
+			json_object_object_add(json_childs, c->name,
+					       json_child);
+	}
+	if (use_json) {
+		json_object_boolean_add(json_obj, "isLeafNode",
+					!listcount(v->child_list));
+		if (listcount(v->child_list))
+			json_object_object_add(json_obj, "children",
+					       json_childs);
+		else
+			json_object_free(json_childs);
+	}
 	free(next_prefix);
 }
 
@@ -1005,13 +1028,8 @@ struct ospf6_lsa *ospf6_create_single_router_lsa(struct ospf6_area *area,
 		return NULL;
 	}
 
-	/* Allocate memory for this LSA */
-	new_header = XMALLOC(MTYPE_OSPF6_LSA_HEADER, total_lsa_length);
-
-	/* LSA information structure */
-	lsa = XCALLOC(MTYPE_OSPF6_LSA, sizeof(struct ospf6_lsa));
-
-	lsa->header = (struct ospf6_lsa_header *)new_header;
+	lsa = ospf6_lsa_alloc(total_lsa_length);
+	new_header = (uint8_t *)lsa->header;
 
 	lsa->lsdb = area->temp_router_lsa_lsdb;
 
@@ -1091,4 +1109,163 @@ void ospf6_remove_temp_router_lsa(struct ospf6_area *area)
 				area->temp_router_lsa_lsdb->count);
 		ospf6_lsdb_remove(lsa, area->temp_router_lsa_lsdb);
 	}
+}
+
+int ospf6_ase_calculate_route(struct ospf6 *ospf6, struct ospf6_lsa *lsa,
+			      struct ospf6_area *area)
+{
+	struct ospf6_route *route;
+	struct ospf6_as_external_lsa *external;
+	struct prefix prefix;
+	void (*hook_add)(struct ospf6_route *) = NULL;
+	void (*hook_remove)(struct ospf6_route *) = NULL;
+
+	assert(lsa);
+
+	if (IS_OSPF6_DEBUG_SPF(PROCESS))
+		zlog_debug("%s :  start", __func__);
+
+	if (ntohs(lsa->header->type) == OSPF6_LSTYPE_TYPE_7)
+		if (IS_OSPF6_DEBUG_SPF(PROCESS))
+			zlog_debug("%s: Processing Type-7", __func__);
+
+	/* Stay away from any Local Translated Type-7 LSAs */
+	if (CHECK_FLAG(lsa->flag, OSPF6_LSA_LOCAL_XLT)) {
+		if (IS_OSPF6_DEBUG_SPF(PROCESS))
+			zlog_debug("%s: Rejecting Local translated LSA",
+				   __func__);
+		return 0;
+	}
+
+	external = (struct ospf6_as_external_lsa *)OSPF6_LSA_HEADER_END(
+		lsa->header);
+	prefix.family = AF_INET6;
+	prefix.prefixlen = external->prefix.prefix_length;
+	ospf6_prefix_in6_addr(&prefix.u.prefix6, external, &external->prefix);
+
+	if (ntohs(lsa->header->type) == OSPF6_LSTYPE_AS_EXTERNAL) {
+		hook_add = ospf6->route_table->hook_add;
+		hook_remove = ospf6->route_table->hook_remove;
+		ospf6->route_table->hook_add = NULL;
+		ospf6->route_table->hook_remove = NULL;
+
+		if (!OSPF6_LSA_IS_MAXAGE(lsa))
+			ospf6_asbr_lsa_add(lsa);
+
+		ospf6->route_table->hook_add = hook_add;
+		ospf6->route_table->hook_remove = hook_remove;
+
+		route = ospf6_route_lookup(&prefix, ospf6->route_table);
+		if (route == NULL) {
+			if (IS_OSPF6_DEBUG_SPF(PROCESS))
+				zlog_debug("%s: no external route %pFX",
+					   __func__, &prefix);
+			return 0;
+		}
+
+		if (CHECK_FLAG(route->flag, OSPF6_ROUTE_REMOVE)
+		    && CHECK_FLAG(route->flag, OSPF6_ROUTE_ADD)) {
+			UNSET_FLAG(route->flag, OSPF6_ROUTE_REMOVE);
+			UNSET_FLAG(route->flag, OSPF6_ROUTE_ADD);
+		}
+
+		if (CHECK_FLAG(route->flag, OSPF6_ROUTE_REMOVE))
+			ospf6_route_remove(route, ospf6->route_table);
+		else if (CHECK_FLAG(route->flag, OSPF6_ROUTE_ADD)
+			 || CHECK_FLAG(route->flag, OSPF6_ROUTE_CHANGE)) {
+			if (hook_add) {
+				if (IS_OSPF6_DEBUG_SPF(PROCESS))
+					zlog_debug(
+						"%s: add external route %pFX",
+						__func__, &prefix);
+				(*hook_add)(route);
+			}
+		}
+	} else if (ntohs(lsa->header->type) == OSPF6_LSTYPE_TYPE_7) {
+		hook_add = area->route_table->hook_add;
+		hook_remove = area->route_table->hook_remove;
+		area->route_table->hook_add = NULL;
+		area->route_table->hook_remove = NULL;
+
+		if (!OSPF6_LSA_IS_MAXAGE(lsa))
+			ospf6_asbr_lsa_add(lsa);
+
+		area->route_table->hook_add = hook_add;
+		area->route_table->hook_remove = hook_remove;
+
+		route = ospf6_route_lookup(&prefix, area->route_table);
+		if (route == NULL) {
+			if (IS_OSPF6_DEBUG_SPF(PROCESS))
+				zlog_debug("%s: no route %pFX, area %s",
+					   __func__, &prefix, area->name);
+			return 0;
+		}
+
+		if (CHECK_FLAG(route->flag, OSPF6_ROUTE_REMOVE)
+		    && CHECK_FLAG(route->flag, OSPF6_ROUTE_ADD)) {
+			UNSET_FLAG(route->flag, OSPF6_ROUTE_REMOVE);
+			UNSET_FLAG(route->flag, OSPF6_ROUTE_ADD);
+		}
+
+		if (CHECK_FLAG(route->flag, OSPF6_ROUTE_REMOVE)) {
+			if (IS_OSPF6_DEBUG_SPF(PROCESS))
+				zlog_debug("%s : remove route %pFX, area %s",
+					   __func__, &prefix, area->name);
+			ospf6_route_remove(route, area->route_table);
+		} else if (CHECK_FLAG(route->flag, OSPF6_ROUTE_ADD)
+			   || CHECK_FLAG(route->flag, OSPF6_ROUTE_CHANGE)) {
+			if (hook_add) {
+				if (IS_OSPF6_DEBUG_SPF(PROCESS))
+					zlog_debug(
+						"%s: add nssa route %pFX, area %s",
+						__func__, &prefix, area->name);
+				(*hook_add)(route);
+			}
+			ospf6_abr_check_translate_nssa(area, lsa);
+		}
+	}
+	return 0;
+}
+
+static int ospf6_ase_calculate_timer(struct thread *t)
+{
+	struct ospf6 *ospf6;
+	struct ospf6_lsa *lsa;
+	struct listnode *node, *nnode;
+	struct ospf6_area *area;
+	uint16_t type;
+
+	ospf6 = THREAD_ARG(t);
+	ospf6->t_ase_calc = NULL;
+
+	/* Calculate external route for each AS-external-LSA */
+	type = htons(OSPF6_LSTYPE_AS_EXTERNAL);
+	for (ALL_LSDB_TYPED(ospf6->lsdb, type, lsa))
+		ospf6_ase_calculate_route(ospf6, lsa, NULL);
+
+	/*  This version simple adds to the table all NSSA areas  */
+	if (ospf6->anyNSSA) {
+		for (ALL_LIST_ELEMENTS(ospf6->area_list, node, nnode, area)) {
+			if (IS_OSPF6_DEBUG_SPF(PROCESS))
+				zlog_debug("%s : looking at area %s", __func__,
+					   area->name);
+
+			if (IS_OSPF6_DEBUG_SPF(PROCESS)) {
+				type = htons(OSPF6_LSTYPE_TYPE_7);
+				for (ALL_LSDB_TYPED(area->lsdb, type, lsa))
+					ospf6_ase_calculate_route(ospf6, lsa,
+								  area);
+			}
+		}
+	}
+	return 0;
+}
+
+void ospf6_ase_calculate_timer_add(struct ospf6 *ospf6)
+{
+	if (ospf6 == NULL)
+		return;
+
+	thread_add_timer(master, ospf6_ase_calculate_timer, ospf6,
+			 OSPF6_ASE_CALC_INTERVAL, &ospf6->t_ase_calc);
 }

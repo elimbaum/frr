@@ -49,8 +49,10 @@
 #include "northbound_cli.h"
 #include "network.h"
 
-DEFINE_MTYPE_STATIC(LIB, HOST, "Host config")
-DEFINE_MTYPE(LIB, COMPLETION, "Completion item")
+#include "frrscript.h"
+
+DEFINE_MTYPE_STATIC(LIB, HOST, "Host config");
+DEFINE_MTYPE(LIB, COMPLETION, "Completion item");
 
 #define item(x)                                                                \
 	{                                                                      \
@@ -158,6 +160,9 @@ static bool vty_check_node_for_xpath_decrement(enum node_type target_node,
 		|| node == BGP_FLOWSPECV6_NODE))
 		return false;
 
+	if (target_node == INTERFACE_NODE && node == LINK_PARAMS_NODE)
+		return false;
+
 	return true;
 }
 
@@ -253,6 +258,9 @@ static bool cmd_hash_cmp(const void *a, const void *b)
 /* Install top node of command vector. */
 void install_node(struct cmd_node *node)
 {
+#define CMD_HASH_STR_SIZE 256
+	char hash_name[CMD_HASH_STR_SIZE];
+
 	vector_set_index(cmdvec, node->node, node);
 	node->cmdgraph = graph_new();
 	node->cmd_vector = vector_init(VECTOR_MIN_SIZE);
@@ -261,8 +269,10 @@ void install_node(struct cmd_node *node)
 		cmd_token_new(START_TKN, CMD_ATTR_NORMAL, NULL, NULL);
 	graph_new_node(node->cmdgraph, token,
 		       (void (*)(void *)) & cmd_token_del);
-	node->cmd_hash = hash_create_size(16, cmd_hash_key, cmd_hash_cmp,
-					  "Command Hash");
+
+	snprintf(hash_name, sizeof(hash_name), "Command Hash: %s", node->name);
+	node->cmd_hash =
+		hash_create_size(16, cmd_hash_key, cmd_hash_cmp, hash_name);
 }
 
 /* Return prompt character of specified node. */
@@ -275,7 +285,7 @@ const char *cmd_prompt(enum node_type node)
 }
 
 /* Install a command into a node. */
-void install_element(enum node_type ntype, const struct cmd_element *cmd)
+void _install_element(enum node_type ntype, const struct cmd_element *cmd)
 {
 	struct cmd_node *cnode;
 
@@ -321,7 +331,7 @@ void install_element(enum node_type ntype, const struct cmd_element *cmd)
 	vector_set(cnode->cmd_vector, (void *)cmd);
 
 	if (ntype == VIEW_NODE)
-		install_element(ENABLE_NODE, cmd);
+		_install_element(ENABLE_NODE, cmd);
 }
 
 void uninstall_element(enum node_type ntype, const struct cmd_element *cmd)
@@ -431,6 +441,36 @@ static int config_write_host(struct vty *vty)
 					host.enable);
 		}
 		log_config_write(vty);
+
+		/* print disable always, but enable only if default is flipped
+		 * => prep for future removal of compile-time knob
+		 */
+		if (!cputime_enabled)
+			vty_out(vty, "no service cputime-stats\n");
+#ifdef EXCLUDE_CPU_TIME
+		else
+			vty_out(vty, "service cputime-stats\n");
+#endif
+
+		if (!cputime_threshold)
+			vty_out(vty, "no service cputime-warning\n");
+#if defined(CONSUMED_TIME_CHECK) && CONSUMED_TIME_CHECK != 5000000
+		else /* again, always print non-default */
+#else
+		else if (cputime_threshold != 5000000)
+#endif
+			vty_out(vty, "service cputime-warning %lu\n",
+				cputime_threshold);
+
+		if (!walltime_threshold)
+			vty_out(vty, "no service walltime-warning\n");
+#if defined(CONSUMED_TIME_CHECK) && CONSUMED_TIME_CHECK != 5000000
+		else /* again, always print non-default */
+#else
+		else if (walltime_threshold != 5000000)
+#endif
+			vty_out(vty, "service walltime-warning %lu\n",
+				walltime_threshold);
 
 		if (host.advanced)
 			vty_out(vty, "service advanced-vty\n");
@@ -863,6 +903,39 @@ enum node_type node_parent(enum node_type node)
 	case BFD_PROFILE_NODE:
 		ret = BFD_NODE;
 		break;
+	case SR_TRAFFIC_ENG_NODE:
+		ret = SEGMENT_ROUTING_NODE;
+		break;
+	case SR_SEGMENT_LIST_NODE:
+		ret = SR_TRAFFIC_ENG_NODE;
+		break;
+	case SR_POLICY_NODE:
+		ret = SR_TRAFFIC_ENG_NODE;
+		break;
+	case SR_CANDIDATE_DYN_NODE:
+		ret = SR_POLICY_NODE;
+		break;
+	case PCEP_NODE:
+		ret = SR_TRAFFIC_ENG_NODE;
+		break;
+	case PCEP_PCE_CONFIG_NODE:
+		ret = PCEP_NODE;
+		break;
+	case PCEP_PCE_NODE:
+		ret = PCEP_NODE;
+		break;
+	case PCEP_PCC_NODE:
+		ret = PCEP_NODE;
+		break;
+	case SRV6_NODE:
+		ret = SEGMENT_ROUTING_NODE;
+		break;
+	case SRV6_LOCS_NODE:
+		ret = SRV6_NODE;
+		break;
+	case SRV6_LOC_NODE:
+		ret = SRV6_LOCS_NODE;
+		break;
 	default:
 		ret = CONFIG_NODE;
 		break;
@@ -874,13 +947,31 @@ enum node_type node_parent(enum node_type node)
 /* Execute command by argument vline vector. */
 static int cmd_execute_command_real(vector vline, enum cmd_filter_type filter,
 				    struct vty *vty,
-				    const struct cmd_element **cmd)
+				    const struct cmd_element **cmd,
+				    unsigned int up_level)
 {
 	struct list *argv_list;
 	enum matcher_rv status;
 	const struct cmd_element *matched_element = NULL;
+	unsigned int i;
+	int xpath_index = vty->xpath_index;
+	int node = vty->node;
 
-	struct graph *cmdgraph = cmd_node_graph(cmdvec, vty->node);
+	/* only happens for legacy split config file load;  need to check for
+	 * a match before calling node_exit handlers below
+	 */
+	for (i = 0; i < up_level; i++) {
+		if (node <= CONFIG_NODE)
+			return CMD_NO_LEVEL_UP;
+
+		node = node_parent(node);
+
+		if (xpath_index > 0
+		    && vty_check_node_for_xpath_decrement(node, vty->node))
+			xpath_index--;
+	}
+
+	struct graph *cmdgraph = cmd_node_graph(cmdvec, node);
 	status = command_match(cmdgraph, vline, &argv_list, &matched_element);
 
 	if (cmd)
@@ -900,12 +991,16 @@ static int cmd_execute_command_real(vector vline, enum cmd_filter_type filter,
 		}
 	}
 
+	for (i = 0; i < up_level; i++)
+		cmd_exit(vty);
+
 	// build argv array from argv list
 	struct cmd_token **argv = XMALLOC(
 		MTYPE_TMP, argv_list->count * sizeof(struct cmd_token *));
 	struct listnode *ln;
 	struct cmd_token *token;
-	unsigned int i = 0;
+
+	i = 0;
 	for (ALL_LIST_ELEMENTS_RO(argv_list, ln, token))
 		argv[i++] = token;
 
@@ -932,7 +1027,7 @@ static int cmd_execute_command_real(vector vline, enum cmd_filter_type filter,
 			 * non-YANG command.
 			 */
 			if (matched_element->attr != CMD_ATTR_YANG)
-				nb_cli_pending_commit_check(vty);
+				(void)nb_cli_pending_commit_check(vty);
 		}
 
 		ret = matched_element->func(matched_element, vty, argc, argv);
@@ -986,7 +1081,7 @@ int cmd_execute_command(vector vline, struct vty *vty,
 					 vector_lookup(vline, index));
 
 		ret = cmd_execute_command_real(shifted_vline, FILTER_RELAXED,
-					       vty, cmd);
+					       vty, cmd, 0);
 
 		vector_free(shifted_vline);
 		vty->node = onode;
@@ -995,12 +1090,13 @@ int cmd_execute_command(vector vline, struct vty *vty,
 	}
 
 	saved_ret = ret =
-		cmd_execute_command_real(vline, FILTER_RELAXED, vty, cmd);
+		cmd_execute_command_real(vline, FILTER_RELAXED, vty, cmd, 0);
 
 	if (vtysh)
 		return saved_ret;
 
 	if (ret != CMD_SUCCESS && ret != CMD_WARNING
+	    && ret != CMD_ERR_AMBIGUOUS && ret != CMD_ERR_INCOMPLETE
 	    && ret != CMD_NOT_MY_INSTANCE && ret != CMD_WARNING_CONFIG_FAILED) {
 		/* This assumes all nodes above CONFIG_NODE are childs of
 		 * CONFIG_NODE */
@@ -1012,8 +1108,9 @@ int cmd_execute_command(vector vline, struct vty *vty,
 								  onode))
 				vty->xpath_index--;
 			ret = cmd_execute_command_real(vline, FILTER_RELAXED,
-						       vty, cmd);
+						       vty, cmd, 0);
 			if (ret == CMD_SUCCESS || ret == CMD_WARNING
+			    || ret == CMD_ERR_AMBIGUOUS || ret == CMD_ERR_INCOMPLETE
 			    || ret == CMD_NOT_MY_INSTANCE
 			    || ret == CMD_WARNING_CONFIG_FAILED)
 				return ret;
@@ -1043,7 +1140,7 @@ int cmd_execute_command(vector vline, struct vty *vty,
 int cmd_execute_command_strict(vector vline, struct vty *vty,
 			       const struct cmd_element **cmd)
 {
-	return cmd_execute_command_real(vline, FILTER_STRICT, vty, cmd);
+	return cmd_execute_command_real(vline, FILTER_STRICT, vty, cmd, 0);
 }
 
 /*
@@ -1194,6 +1291,7 @@ int command_config_read_one_line(struct vty *vty,
 {
 	vector vline;
 	int ret;
+	unsigned up_level = 0;
 
 	vline = cmd_make_strvec(vty->buf);
 
@@ -1204,36 +1302,21 @@ int command_config_read_one_line(struct vty *vty,
 	/* Execute configuration command : this is strict match */
 	ret = cmd_execute_command_strict(vline, vty, cmd);
 
-	// Climb the tree and try the command again at each node
-	if (!(use_daemon && ret == CMD_SUCCESS_DAEMON)
-	    && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
-	    && ret != CMD_SUCCESS && ret != CMD_WARNING
-	    && ret != CMD_NOT_MY_INSTANCE && ret != CMD_WARNING_CONFIG_FAILED
-	    && vty->node != CONFIG_NODE) {
-		int saved_node = vty->node;
-		int saved_xpath_index = vty->xpath_index;
+	/* The logic for trying parent nodes is in cmd_execute_command_real()
+	 * since calling ->node_exit() correctly is a bit involved.  This is
+	 * also the only reason CMD_NO_LEVEL_UP exists.
+	 */
+	while (!(use_daemon && ret == CMD_SUCCESS_DAEMON)
+	       && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
+	       && ret != CMD_SUCCESS && ret != CMD_WARNING
+	       && ret != CMD_ERR_AMBIGUOUS && ret != CMD_ERR_INCOMPLETE
+	       && ret != CMD_NOT_MY_INSTANCE && ret != CMD_WARNING_CONFIG_FAILED
+	       && ret != CMD_NO_LEVEL_UP)
+		ret = cmd_execute_command_real(vline, FILTER_STRICT, vty, cmd,
+					       ++up_level);
 
-		while (!(use_daemon && ret == CMD_SUCCESS_DAEMON)
-		       && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
-		       && ret != CMD_SUCCESS && ret != CMD_WARNING
-		       && vty->node > CONFIG_NODE) {
-			vty->node = node_parent(vty->node);
-			if (vty->xpath_index > 0
-			    && vty_check_node_for_xpath_decrement(vty->node,
-								  saved_node))
-				vty->xpath_index--;
-			ret = cmd_execute_command_strict(vline, vty, cmd);
-		}
-
-		// If climbing the tree did not work then ignore the command and
-		// stay at the same node
-		if (!(use_daemon && ret == CMD_SUCCESS_DAEMON)
-		    && !(!use_daemon && ret == CMD_ERR_NOTHING_TODO)
-		    && ret != CMD_SUCCESS && ret != CMD_WARNING) {
-			vty->node = saved_node;
-			vty->xpath_index = saved_xpath_index;
-		}
-	}
+	if (ret == CMD_NO_LEVEL_UP)
+		ret = CMD_ERR_NO_MATCH;
 
 	if (ret != CMD_SUCCESS &&
 	    ret != CMD_WARNING &&
@@ -1451,6 +1534,56 @@ static void permute(struct graph_node *start, struct vty *vty)
 	list_delete_node(position, listtail(position));
 }
 
+static void print_cmd(struct vty *vty, const char *cmd)
+{
+	int i, j, len = strlen(cmd);
+	char buf[len + 1];
+	bool skip = false;
+
+	j = 0;
+	for (i = 0; i < len; i++) {
+		/* skip varname */
+		if (cmd[i] == '$')
+			skip = true;
+		else if (strchr(" ()<>[]{}|", cmd[i]))
+			skip = false;
+
+		if (skip)
+			continue;
+
+		if (isspace(cmd[i])) {
+			/* skip leading whitespace */
+			if (i == 0)
+				continue;
+			/* skip trailing whitespace */
+			if (i == len - 1)
+				continue;
+			/* skip all whitespace after opening brackets or pipe */
+			if (strchr("(<[{|", cmd[i - 1])) {
+				while (isspace(cmd[i + 1]))
+					i++;
+				continue;
+			}
+			/* skip repeated whitespace */
+			if (isspace(cmd[i + 1]))
+				continue;
+			/* skip whitespace before closing brackets or pipe */
+			if (strchr(")>]}|", cmd[i + 1]))
+				continue;
+			/* convert tabs to spaces */
+			if (cmd[i] == '\t') {
+				buf[j++] = ' ';
+				continue;
+			}
+		}
+
+		buf[j++] = cmd[i];
+	}
+	buf[j] = 0;
+
+	vty_out(vty, "%s\n", buf);
+}
+
 int cmd_list_cmds(struct vty *vty, int do_permute)
 {
 	struct cmd_node *node = vector_slot(cmdvec, vty->node);
@@ -1464,8 +1597,10 @@ int cmd_list_cmds(struct vty *vty, int do_permute)
 		     i++)
 			if ((element = vector_slot(node->cmd_vector, i))
 			    && element->attr != CMD_ATTR_DEPRECATED
-			    && element->attr != CMD_ATTR_HIDDEN)
-				vty_out(vty, "    %s\n", element->string);
+			    && element->attr != CMD_ATTR_HIDDEN) {
+				vty_out(vty, "    ");
+				print_cmd(vty, element->string);
+			}
 	}
 	return CMD_SUCCESS;
 }
@@ -2198,20 +2333,17 @@ DEFUN (no_banner_motd,
 	return CMD_SUCCESS;
 }
 
-DEFUN(find,
-      find_cmd,
-      "find REGEX",
-      "Find CLI command matching a regular expression\n"
-      "Search pattern (POSIX regex)\n")
+int cmd_find_cmds(struct vty *vty, struct cmd_token **argv, int argc)
 {
-	char *pattern = argv[1]->arg;
 	const struct cmd_node *node;
 	const struct cmd_element *cli;
 	vector clis;
 
 	regex_t exp = {};
 
+	char *pattern = argv_concat(argv, argc, 1);
 	int cr = regcomp(&exp, pattern, REG_NOSUB | REG_EXTENDED);
+	XFREE(MTYPE_TMP, pattern);
 
 	if (cr != 0) {
 		switch (cr) {
@@ -2268,9 +2400,10 @@ DEFUN(find,
 		for (unsigned int j = 0; j < vector_active(clis); j++) {
 			cli = vector_slot(clis, j);
 
-			if (regexec(&exp, cli->string, 0, NULL, 0) == 0)
-				vty_out(vty, "  (%s)  %s\n",
-					node->name, cli->string);
+			if (regexec(&exp, cli->string, 0, NULL, 0) == 0) {
+				vty_out(vty, "  (%s)  ", node->name);
+				print_cmd(vty, cli->string);
+			}
 		}
 	}
 
@@ -2278,6 +2411,42 @@ done:
 	regfree(&exp);
 	return CMD_SUCCESS;
 }
+
+DEFUN(find,
+      find_cmd,
+      "find REGEX...",
+      "Find CLI command matching a regular expression\n"
+      "Search pattern (POSIX regex)\n")
+{
+	return cmd_find_cmds(vty, argv, argc);
+}
+
+#if defined(DEV_BUILD) && defined(HAVE_SCRIPTING)
+DEFUN(script,
+      script_cmd,
+      "script SCRIPT",
+      "Test command - execute a script\n"
+      "Script name (same as filename in /etc/frr/scripts/\n")
+{
+	struct prefix p;
+
+	(void)str2prefix("1.2.3.4/24", &p);
+	struct frrscript *fs = frrscript_load(argv[1]->arg, NULL);
+
+	if (fs == NULL) {
+		vty_out(vty, "Script '/etc/frr/scripts/%s.lua' not found\n",
+			argv[1]->arg);
+	} else {
+		int ret = frrscript_call(fs, ("p", &p));
+		char buf[40];
+		prefix2str(&p, buf, sizeof(buf));
+		vty_out(vty, "p: %s\n", buf);
+		vty_out(vty, "Script result: %d\n", ret);
+	}
+
+	return CMD_SUCCESS;
+}
+#endif
 
 /* Set config filename.  Called from vty.c */
 void host_config_set(const char *filename)
@@ -2293,18 +2462,18 @@ const char *host_config_get(void)
 
 void install_default(enum node_type node)
 {
-	install_element(node, &config_exit_cmd);
-	install_element(node, &config_quit_cmd);
-	install_element(node, &config_end_cmd);
-	install_element(node, &config_help_cmd);
-	install_element(node, &config_list_cmd);
-	install_element(node, &show_cli_graph_cmd);
-	install_element(node, &find_cmd);
+	_install_element(node, &config_exit_cmd);
+	_install_element(node, &config_quit_cmd);
+	_install_element(node, &config_end_cmd);
+	_install_element(node, &config_help_cmd);
+	_install_element(node, &config_list_cmd);
+	_install_element(node, &show_cli_graph_cmd);
+	_install_element(node, &find_cmd);
 
-	install_element(node, &config_write_cmd);
-	install_element(node, &show_running_config_cmd);
+	_install_element(node, &config_write_cmd);
+	_install_element(node, &show_running_config_cmd);
 
-	install_element(node, &autocomplete_cmd);
+	_install_element(node, &autocomplete_cmd);
 
 	nb_cli_install_default(node);
 }
@@ -2373,6 +2542,10 @@ void cmd_init(int terminal)
 		install_element(VIEW_NODE, &echo_cmd);
 		install_element(VIEW_NODE, &autocomplete_cmd);
 		install_element(VIEW_NODE, &find_cmd);
+#if defined(DEV_BUILD) && defined(HAVE_SCRIPTING)
+		install_element(VIEW_NODE, &script_cmd);
+#endif
+
 
 		install_element(ENABLE_NODE, &config_end_cmd);
 		install_element(ENABLE_NODE, &config_disable_cmd);

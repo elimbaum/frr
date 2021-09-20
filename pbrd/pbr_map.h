@@ -86,6 +86,17 @@ struct pbr_map_sequence {
 	uint32_t ruleno;
 
 	/*
+	 * src and dst ports
+	 */
+	uint16_t src_prt;
+	uint16_t dst_prt;
+
+	/*
+	 * The ip protocol we want to match on
+	 */
+	uint8_t ip_proto;
+
+	/*
 	 * Our policy Catchers
 	 */
 	struct prefix *src;
@@ -184,10 +195,10 @@ struct pbr_map_sequence {
 #define PBR_MAP_INVALID_SET_STRIP_VLAN   (1 << 6)
 	uint64_t reason;
 
-	QOBJ_FIELDS
+	QOBJ_FIELDS;
 };
 
-DECLARE_QOBJ_TYPE(pbr_map_sequence)
+DECLARE_QOBJ_TYPE(pbr_map_sequence);
 
 extern struct pbr_map_entry_head pbr_maps;
 

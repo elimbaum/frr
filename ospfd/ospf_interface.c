@@ -35,6 +35,7 @@
 #include "ldp_sync.h"
 
 #include "ospfd/ospfd.h"
+#include "ospfd/ospf_bfd.h"
 #include "ospfd/ospf_spf.h"
 #include "ospfd/ospf_interface.h"
 #include "ospfd/ospf_ism.h"
@@ -48,12 +49,14 @@
 #include "ospfd/ospf_network.h"
 #include "ospfd/ospf_dump.h"
 #include "ospfd/ospf_ldp_sync.h"
+#include "ospfd/ospf_route.h"
+#include "ospfd/ospf_te.h"
 
-DEFINE_QOBJ_TYPE(ospf_interface)
-DEFINE_HOOK(ospf_vl_add, (struct ospf_vl_data * vd), (vd))
-DEFINE_HOOK(ospf_vl_delete, (struct ospf_vl_data * vd), (vd))
-DEFINE_HOOK(ospf_if_update, (struct interface * ifp), (ifp))
-DEFINE_HOOK(ospf_if_delete, (struct interface * ifp), (ifp))
+DEFINE_QOBJ_TYPE(ospf_interface);
+DEFINE_HOOK(ospf_vl_add, (struct ospf_vl_data * vd), (vd));
+DEFINE_HOOK(ospf_vl_delete, (struct ospf_vl_data * vd), (vd));
+DEFINE_HOOK(ospf_if_update, (struct interface * ifp), (ifp));
+DEFINE_HOOK(ospf_if_delete, (struct interface * ifp), (ifp));
 
 int ospf_interface_neighbor_count(struct ospf_interface *oi)
 {
@@ -185,7 +188,7 @@ struct ospf_interface *ospf_if_table_lookup(struct interface *ifp,
 	struct ospf_interface *rninfo = NULL;
 
 	p = *prefix;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 
 	/* route_node_get implicitely locks */
 	if ((rn = route_node_lookup(IF_OIFS(ifp), &p))) {
@@ -202,7 +205,7 @@ static void ospf_add_to_if(struct interface *ifp, struct ospf_interface *oi)
 	struct prefix p;
 
 	p = *oi->address;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	apply_mask(&p);
 
 	rn = route_node_get(IF_OIFS(ifp), &p);
@@ -220,7 +223,7 @@ static void ospf_delete_from_if(struct interface *ifp,
 	struct prefix p;
 
 	p = *oi->address;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 
 	rn = route_node_lookup(IF_OIFS(oi->ifp), &p);
 	assert(rn);
@@ -542,13 +545,16 @@ static struct ospf_if_params *ospf_new_if_params(void)
 	oip->network_lsa_seqnum = htonl(OSPF_INITIAL_SEQUENCE_NUMBER);
 	oip->is_v_wait_set = false;
 
+	oip->ptp_dmvpn = 0;
+
 	return oip;
 }
 
-void ospf_del_if_params(struct ospf_if_params *oip)
+static void ospf_del_if_params(struct interface *ifp,
+			       struct ospf_if_params *oip)
 {
 	list_delete(&oip->auth_crypt);
-	bfd_info_free(&(oip->bfd_info));
+	ospf_interface_disable_bfd(ifp, oip);
 	ldp_sync_info_free(&(oip->ldp_sync_info));
 	XFREE(MTYPE_OSPF_IF_PARAMS, oip);
 }
@@ -560,7 +566,7 @@ void ospf_free_if_params(struct interface *ifp, struct in_addr addr)
 	struct route_node *rn;
 
 	p.family = AF_INET;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	p.prefix = addr;
 	rn = route_node_lookup(IF_OIFS_PARAMS(ifp), (struct prefix *)&p);
 	if (!rn || !rn->info)
@@ -582,7 +588,7 @@ void ospf_free_if_params(struct interface *ifp, struct in_addr addr)
 	    && !OSPF_IF_PARAM_CONFIGURED(oip, auth_type)
 	    && !OSPF_IF_PARAM_CONFIGURED(oip, if_area)
 	    && listcount(oip->auth_crypt) == 0) {
-		ospf_del_if_params(oip);
+		ospf_del_if_params(ifp, oip);
 		rn->info = NULL;
 		route_unlock_node(rn);
 	}
@@ -595,7 +601,7 @@ struct ospf_if_params *ospf_lookup_if_params(struct interface *ifp,
 	struct route_node *rn;
 
 	p.family = AF_INET;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	p.prefix = addr;
 
 	rn = route_node_lookup(IF_OIFS_PARAMS(ifp), (struct prefix *)&p);
@@ -615,7 +621,7 @@ struct ospf_if_params *ospf_get_if_params(struct interface *ifp,
 	struct route_node *rn;
 
 	p.family = AF_INET;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	p.prefix = addr;
 	apply_mask_ipv4(&p);
 
@@ -647,12 +653,8 @@ void ospf_if_update_params(struct interface *ifp, struct in_addr addr)
 int ospf_if_new_hook(struct interface *ifp)
 {
 	int rc = 0;
-	struct ospf_if_info *oii;
 
 	ifp->info = XCALLOC(MTYPE_OSPF_IF_INFO, sizeof(struct ospf_if_info));
-
-	oii = ifp->info;
-	oii->curr_mtu = ifp->mtu;
 
 	IF_OIFS(ifp) = route_table_init();
 	IF_OIFS_PARAMS(ifp) = route_table_init();
@@ -696,14 +698,20 @@ static int ospf_if_delete_hook(struct interface *ifp)
 	struct route_node *rn;
 	rc = ospf_opaque_del_if(ifp);
 
+	/*
+	 * This function must be called before `route_table_finish` due to
+	 * BFD integration need to iterate over the interface neighbors to
+	 * remove all registrations.
+	 */
+	ospf_del_if_params(ifp, IF_DEF_PARAMS(ifp));
+
 	route_table_finish(IF_OIFS(ifp));
 
 	for (rn = route_top(IF_OIFS_PARAMS(ifp)); rn; rn = route_next(rn))
 		if (rn->info)
-			ospf_del_if_params(rn->info);
+			ospf_del_if_params(ifp, rn->info);
 	route_table_finish(IF_OIFS_PARAMS(ifp));
 
-	ospf_del_if_params((struct ospf_if_params *)IF_DEF_PARAMS(ifp));
 	XFREE(MTYPE_OSPF_IF_INFO, ifp->info);
 
 	return rc;
@@ -798,6 +806,10 @@ int ospf_if_up(struct ospf_interface *oi)
 int ospf_if_down(struct ospf_interface *oi)
 {
 	struct ospf *ospf;
+	struct route_node *rn;
+	struct ospf_route *or;
+	struct listnode *nh;
+	struct ospf_path *op;
 
 	if (oi == NULL)
 		return 0;
@@ -833,6 +845,22 @@ int ospf_if_down(struct ospf_interface *oi)
 	oi->lsa_pos_end = 0;
 	/* Shutdown packet reception and sending */
 	ospf_if_stream_unset(oi);
+
+	for (rn = route_top(ospf->new_table); rn; rn = route_next(rn)) {
+		or = rn->info;
+
+		if (!or)
+			continue;
+
+		for (nh = listhead(or->paths); nh;
+		     nh = listnextnode_unchecked(nh)) {
+			op = listgetdata(nh);
+			if (op->ifindex == oi->ifp->ifindex) {
+				or->changed = true;
+				break;
+			}
+		}
+	}
 
 	return 1;
 }
@@ -1274,12 +1302,28 @@ void ospf_if_interface(struct interface *ifp)
 	hook_call(ospf_if_update, ifp);
 }
 
-static int ospf_ifp_create(struct interface *ifp)
+uint32_t ospf_if_count_area_params(struct interface *ifp)
 {
-	struct ospf *ospf = NULL;
 	struct ospf_if_params *params;
 	struct route_node *rn;
 	uint32_t count = 0;
+
+	params = IF_DEF_PARAMS(ifp);
+	if (OSPF_IF_PARAM_CONFIGURED(params, if_area))
+		count++;
+
+	for (rn = route_top(IF_OIFS_PARAMS(ifp)); rn; rn = route_next(rn))
+		if ((params = rn->info)
+		    && OSPF_IF_PARAM_CONFIGURED(params, if_area))
+			count++;
+
+	return count;
+}
+
+static int ospf_ifp_create(struct interface *ifp)
+{
+	struct ospf *ospf = NULL;
+	struct ospf_if_info *oii;
 
 	if (IS_DEBUG_OSPF(zebra, ZEBRA_INTERFACE))
 		zlog_debug(
@@ -1291,6 +1335,9 @@ static int ospf_ifp_create(struct interface *ifp)
 
 	assert(ifp->info);
 
+	oii = ifp->info;
+	oii->curr_mtu = ifp->mtu;
+
 	if (IF_DEF_PARAMS(ifp)
 	    && !OSPF_IF_PARAM_CONFIGURED(IF_DEF_PARAMS(ifp), type)) {
 		SET_IF_PARAM(IF_DEF_PARAMS(ifp), type);
@@ -1301,22 +1348,15 @@ static int ospf_ifp_create(struct interface *ifp)
 	if (!ospf)
 		return 0;
 
-	params = IF_DEF_PARAMS(ifp);
-	if (OSPF_IF_PARAM_CONFIGURED(params, if_area))
-		count++;
-
-	for (rn = route_top(IF_OIFS_PARAMS(ifp)); rn; rn = route_next(rn))
-		if ((params = rn->info) && OSPF_IF_PARAM_CONFIGURED(params, if_area))
-			count++;
-
-	if (count > 0) {
-		ospf->if_ospf_cli_count += count;
+	if (ospf_if_count_area_params(ifp) > 0)
 		ospf_interface_area_set(ospf, ifp);
-	}
 
 	ospf_if_recalculate_output_cost(ifp);
 
 	ospf_if_update(ospf, ifp);
+
+	if (HAS_LINK_PARAMS(ifp))
+		ospf_mpls_te_update_if(ifp);
 
 	hook_call(ospf_if_update, ifp);
 
@@ -1356,6 +1396,9 @@ static int ospf_ifp_up(struct interface *ifp)
 		ospf_if_up(oi);
 	}
 
+	if (HAS_LINK_PARAMS(ifp))
+		ospf_mpls_te_update_if(ifp);
+
 	return 0;
 }
 
@@ -1380,9 +1423,7 @@ static int ospf_ifp_down(struct interface *ifp)
 static int ospf_ifp_destroy(struct interface *ifp)
 {
 	struct ospf *ospf;
-	struct ospf_if_params *params;
 	struct route_node *rn;
-	uint32_t count = 0;
 
 	if (IS_DEBUG_OSPF(zebra, ZEBRA_INTERFACE))
 		zlog_debug(
@@ -1395,18 +1436,8 @@ static int ospf_ifp_destroy(struct interface *ifp)
 
 	ospf = ospf_lookup_by_vrf_id(ifp->vrf_id);
 	if (ospf) {
-		params = IF_DEF_PARAMS(ifp);
-		if (OSPF_IF_PARAM_CONFIGURED(params, if_area))
-			count++;
-
-		for (rn = route_top(IF_OIFS_PARAMS(ifp)); rn; rn = route_next(rn))
-			if ((params = rn->info) && OSPF_IF_PARAM_CONFIGURED(params, if_area))
-				count++;
-
-		if (count > 0) {
-			ospf->if_ospf_cli_count -= count;
+		if (ospf_if_count_area_params(ifp) > 0)
 			ospf_interface_area_unset(ospf, ifp);
-		}
 	}
 
 	for (rn = route_top(IF_OIFS(ifp)); rn; rn = route_next(rn))

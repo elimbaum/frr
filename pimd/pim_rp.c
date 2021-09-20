@@ -124,7 +124,7 @@ void pim_rp_init(struct pim_instance *pim)
 	}
 	rp_info->group.family = AF_INET;
 	rp_info->rp.rpf_addr.family = AF_INET;
-	rp_info->rp.rpf_addr.prefixlen = IPV4_MAX_PREFIXLEN;
+	rp_info->rp.rpf_addr.prefixlen = IPV4_MAX_BITLEN;
 	rp_info->rp.rpf_addr.u.prefix4.s_addr = INADDR_NONE;
 
 	listnode_add(pim->rp_list, rp_info);
@@ -204,6 +204,26 @@ static struct rp_info *pim_rp_find_exact(struct pim_instance *pim,
 }
 
 /*
+ * XXX: long-term issue:  we don't actually have a good "ip address-list"
+ * implementation.  ("access-list XYZ" is the closest but honestly it's
+ * kinda garbage.)
+ *
+ * So it's using a prefix-list to match an address here, which causes very
+ * unexpected results for the user since prefix-lists by default only match
+ * when the prefix length is an exact match too.  i.e. you'd have to add the
+ * "le 32" and do "ip prefix-list foo permit 10.0.0.0/24 le 32"
+ *
+ * To avoid this pitfall, this code uses "address_mode = true" for the prefix
+ * list match (this is the only user for that.)
+ *
+ * In the long run, we need to add a "ip address-list", but that's a wholly
+ * separate bag of worms, and existing configs using ip prefix-list would
+ * drop into the UX pitfall.
+ */
+
+#include "lib/plist_int.h"
+
+/*
  * Given a group, return the rp_info for that group
  */
 struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
@@ -213,7 +233,8 @@ struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
 	struct rp_info *best = NULL;
 	struct rp_info *rp_info;
 	struct prefix_list *plist;
-	const struct prefix *p, *bp;
+	const struct prefix *bp;
+	const struct prefix_list_entry *entry;
 	struct route_node *rn;
 
 	bp = NULL;
@@ -221,19 +242,19 @@ struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
 		if (rp_info->plist) {
 			plist = prefix_list_lookup(AFI_IP, rp_info->plist);
 
-			if (prefix_list_apply_which_prefix(plist, &p, group)
-			    == PREFIX_DENY)
+			if (prefix_list_apply_ext(plist, &entry, group, true)
+			    == PREFIX_DENY || !entry)
 				continue;
 
 			if (!best) {
 				best = rp_info;
-				bp = p;
+				bp = &entry->prefix;
 				continue;
 			}
 
-			if (bp && bp->prefixlen < p->prefixlen) {
+			if (bp && bp->prefixlen < entry->prefix.prefixlen) {
 				best = rp_info;
-				bp = p;
+				bp = &entry->prefix;
 			}
 		}
 	}
@@ -242,7 +263,7 @@ struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
 	if (!rn) {
 		flog_err(
 			EC_LIB_DEVELOPMENT,
-			"%s: BUG We should have found default group information\n",
+			"%s: BUG We should have found default group information",
 			__func__);
 		return best;
 	}
@@ -271,7 +292,7 @@ struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
  *
  * This is a placeholder function for now.
  */
-static void pim_rp_refresh_group_to_rp_mapping(struct pim_instance *pim)
+void pim_rp_refresh_group_to_rp_mapping(struct pim_instance *pim)
 {
 	pim_msdp_i_am_rp_changed(pim);
 	pim_upstream_reeval_use_rpt(pim);
@@ -417,7 +438,7 @@ int pim_rp_new(struct pim_instance *pim, struct in_addr rp_addr,
 	rp_info = XCALLOC(MTYPE_PIM_RP, sizeof(*rp_info));
 
 	rp_info->rp.rpf_addr.family = AF_INET;
-	rp_info->rp.rpf_addr.prefixlen = IPV4_MAX_PREFIXLEN;
+	rp_info->rp.rpf_addr.prefixlen = IPV4_MAX_BITLEN;
 	rp_info->rp.rpf_addr.u.prefix4 = rp_addr;
 	prefix_copy(&rp_info->group, &group);
 	rp_info->rp_src = rp_src_flag;
@@ -702,7 +723,7 @@ int pim_rp_del(struct pim_instance *pim, struct in_addr rp_addr,
 		bsgrp = pim_bsm_get_bsgrp_node(&pim->global_scope, &group);
 
 		if (bsgrp) {
-			bsrp = listnode_head(bsgrp->bsrp_list);
+			bsrp = bsm_rpinfos_first(bsgrp->bsrp_list);
 			if (bsrp) {
 				if (PIM_DEBUG_PIM_TRACE) {
 					char bsrp_str[INET_ADDRSTRLEN];
@@ -1036,7 +1057,7 @@ int pim_rp_i_am_rp(struct pim_instance *pim, struct in_addr group)
 
 	memset(&g, 0, sizeof(g));
 	g.family = AF_INET;
-	g.prefixlen = 32;
+	g.prefixlen = IPV4_MAX_BITLEN;
 	g.u.prefix4 = group;
 
 	rp_info = pim_rp_find_match_group(pim, &g);
@@ -1059,7 +1080,7 @@ struct pim_rpf *pim_rp_g(struct pim_instance *pim, struct in_addr group)
 
 	memset(&g, 0, sizeof(g));
 	g.family = AF_INET;
-	g.prefixlen = 32;
+	g.prefixlen = IPV4_MAX_BITLEN;
 	g.u.prefix4 = group;
 
 	rp_info = pim_rp_find_match_group(pim, &g);
@@ -1103,7 +1124,7 @@ int pim_rp_set_upstream_addr(struct pim_instance *pim, struct in_addr *up,
 
 	memset(&g, 0, sizeof(g));
 	g.family = AF_INET;
-	g.prefixlen = 32;
+	g.prefixlen = IPV4_MAX_BITLEN;
 	g.u.prefix4 = group;
 
 	rp_info = pim_rp_find_match_group(pim, &g);
@@ -1159,7 +1180,7 @@ int pim_rp_config_write(struct pim_instance *pim, struct vty *vty,
 bool pim_rp_check_is_my_ip_address(struct pim_instance *pim,
 				   struct in_addr dest_addr)
 {
-	if (if_lookup_exact_address(&dest_addr, AF_INET, pim->vrf_id))
+	if (if_lookup_exact_address(&dest_addr, AF_INET, pim->vrf->vrf_id))
 		return true;
 
 	return false;
@@ -1319,11 +1340,11 @@ void pim_resolve_rp_nh(struct pim_instance *pim, struct pim_neighbor *nbr)
 			continue;
 
 		for (nh_node = pnc.nexthop; nh_node; nh_node = nh_node->next) {
-			if (nh_node->gate.ipv4.s_addr != 0)
+			if (nh_node->gate.ipv4.s_addr != INADDR_ANY)
 				continue;
 
 			struct interface *ifp1 = if_lookup_by_index(
-				nh_node->ifindex, pim->vrf_id);
+				nh_node->ifindex, pim->vrf->vrf_id);
 
 			if (nbr->interface != ifp1)
 				continue;

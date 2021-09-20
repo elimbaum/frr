@@ -21,6 +21,7 @@
 #include <zebra.h>
 
 #include <lib/version.h>
+#include "lib/bfd.h"
 #include "lib/printfrr.h"
 #include "prefix.h"
 #include "linklist.h"
@@ -38,6 +39,7 @@
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_community.h"
+#include "bgpd/bgp_lcommunity.h"
 #include "bgpd/bgp_updgrp.h"
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_ecommunity.h"
@@ -66,6 +68,7 @@ unsigned long conf_bgp_debug_labelpool;
 unsigned long conf_bgp_debug_pbr;
 unsigned long conf_bgp_debug_graceful_restart;
 unsigned long conf_bgp_debug_evpn_mh;
+unsigned long conf_bgp_debug_bfd;
 
 unsigned long term_bgp_debug_as4;
 unsigned long term_bgp_debug_neighbor_events;
@@ -85,6 +88,7 @@ unsigned long term_bgp_debug_labelpool;
 unsigned long term_bgp_debug_pbr;
 unsigned long term_bgp_debug_graceful_restart;
 unsigned long term_bgp_debug_evpn_mh;
+unsigned long term_bgp_debug_bfd;
 
 struct list *bgp_debug_neighbor_events_peers = NULL;
 struct list *bgp_debug_keepalive_peers = NULL;
@@ -118,7 +122,7 @@ static const struct message bgp_notify_msg[] = {
 	{BGP_NOTIFY_HOLD_ERR, "Hold Timer Expired"},
 	{BGP_NOTIFY_FSM_ERR, "Neighbor Events Error"},
 	{BGP_NOTIFY_CEASE, "Cease"},
-	{BGP_NOTIFY_CAPABILITY_ERR, "CAPABILITY Message Error"},
+	{BGP_NOTIFY_ROUTE_REFRESH_ERR, "ROUTE-REFRESH Message Error"},
 	{0}};
 
 static const struct message bgp_notify_head_msg[] = {
@@ -166,11 +170,9 @@ static const struct message bgp_notify_cease_msg[] = {
 	{BGP_NOTIFY_CEASE_OUT_OF_RESOURCE, "/Out of Resource"},
 	{0}};
 
-static const struct message bgp_notify_capability_msg[] = {
+static const struct message bgp_notify_route_refresh_msg[] = {
 	{BGP_NOTIFY_SUBCODE_UNSPECIFIC, "/Unspecific"},
-	{BGP_NOTIFY_CAPABILITY_INVALID_ACTION, "/Invalid Action Value"},
-	{BGP_NOTIFY_CAPABILITY_INVALID_LENGTH, "/Invalid Capability Length"},
-	{BGP_NOTIFY_CAPABILITY_MALFORMED_CODE, "/Malformed Capability Value"},
+	{BGP_NOTIFY_ROUTE_REFRESH_INVALID_MSG_LEN, "/Invalid Message Length"},
 	{0}};
 
 static const struct message bgp_notify_fsm_msg[] = {
@@ -411,6 +413,11 @@ bool bgp_dump_attr(struct attr *attr, char *buf, size_t size)
 			 ", community %s",
 			 community_str(attr->community, false));
 
+	if (CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_LARGE_COMMUNITIES)))
+		snprintf(buf + strlen(buf), size - strlen(buf),
+			 ", large-community %s",
+			 lcommunity_str(attr->lcommunity, false));
+
 	if (CHECK_FLAG(attr->flag, ATTR_FLAG_BIT(BGP_ATTR_EXT_COMMUNITIES)))
 		snprintf(buf + strlen(buf), size - strlen(buf),
 			 ", extcommunity %s", ecommunity_str(attr->ecommunity));
@@ -487,8 +494,8 @@ const char *bgp_notify_subcode_str(char code, char subcode)
 	case BGP_NOTIFY_CEASE:
 		return lookup_msg(bgp_notify_cease_msg, subcode,
 				  "Unrecognized Error Subcode");
-	case BGP_NOTIFY_CAPABILITY_ERR:
-		return lookup_msg(bgp_notify_capability_msg, subcode,
+	case BGP_NOTIFY_ROUTE_REFRESH_ERR:
+		return lookup_msg(bgp_notify_route_refresh_msg, subcode,
 				  "Unrecognized Error Subcode");
 	}
 	return "";
@@ -2089,6 +2096,34 @@ DEFUN (no_debug_bgp_labelpool,
 	return CMD_SUCCESS;
 }
 
+DEFPY(debug_bgp_bfd, debug_bgp_bfd_cmd,
+      "[no] debug bgp bfd",
+      NO_STR
+      DEBUG_STR
+      BGP_STR
+      "Bidirection Forwarding Detection\n")
+{
+	if (vty->node == CONFIG_NODE) {
+		if (no) {
+			DEBUG_OFF(bfd, BFD_LIB);
+			bfd_protocol_integration_set_debug(false);
+		} else {
+			DEBUG_ON(bfd, BFD_LIB);
+			bfd_protocol_integration_set_debug(true);
+		}
+	} else {
+		if (no) {
+			TERM_DEBUG_OFF(bfd, BFD_LIB);
+			bfd_protocol_integration_set_debug(false);
+		} else {
+			TERM_DEBUG_ON(bfd, BFD_LIB);
+			bfd_protocol_integration_set_debug(true);
+		}
+	}
+
+	return CMD_SUCCESS;
+}
+
 DEFUN (no_debug_bgp,
        no_debug_bgp_cmd,
        "no debug bgp",
@@ -2132,6 +2167,7 @@ DEFUN (no_debug_bgp,
 	TERM_DEBUG_OFF(graceful_restart, GRACEFUL_RESTART);
 	TERM_DEBUG_OFF(evpn_mh, EVPN_MH_ES);
 	TERM_DEBUG_OFF(evpn_mh, EVPN_MH_RT);
+	TERM_DEBUG_OFF(bfd, BFD_LIB);
 
 	vty_out(vty, "All possible debugging has been turned off\n");
 
@@ -2220,6 +2256,9 @@ DEFUN_NOSH (show_debugging_bgp,
 		vty_out(vty, "  BGP EVPN-MH ES debugging is on\n");
 	if (BGP_DEBUG(evpn_mh, EVPN_MH_RT))
 		vty_out(vty, "  BGP EVPN-MH route debugging is on\n");
+
+	if (BGP_DEBUG(bfd, BFD_LIB))
+		vty_out(vty, "  BGP BFD library debugging is on\n");
 
 	vty_out(vty, "\n");
 	return CMD_SUCCESS;
@@ -2343,6 +2382,11 @@ static int bgp_config_write_debug(struct vty *vty)
 	}
 	if (CONF_BGP_DEBUG(evpn_mh, EVPN_MH_RT)) {
 		vty_out(vty, "debug bgp evpn mh route\n");
+		write++;
+	}
+
+	if (CONF_BGP_DEBUG(bfd, BFD_LIB)) {
+		vty_out(vty, "debug bgp bfd\n");
 		write++;
 	}
 
@@ -2474,6 +2518,10 @@ void bgp_debug_init(void)
 
 	install_element(ENABLE_NODE, &debug_bgp_evpn_mh_cmd);
 	install_element(CONFIG_NODE, &debug_bgp_evpn_mh_cmd);
+
+	/* debug bgp bfd */
+	install_element(ENABLE_NODE, &debug_bgp_bfd_cmd);
+	install_element(CONFIG_NODE, &debug_bgp_bfd_cmd);
 }
 
 /* Return true if this prefix is on the per_prefix_list of prefixes to debug
@@ -2632,10 +2680,14 @@ const char *bgp_debug_rdpfxpath2str(afi_t afi, safi_t safi,
 				    union prefixconstptr pu,
 				    mpls_label_t *label, uint32_t num_labels,
 				    int addpath_valid, uint32_t addpath_id,
+				    struct bgp_route_evpn *overlay_index,
 				    char *str, int size)
 {
 	char rd_buf[RD_ADDRSTRLEN];
 	char tag_buf[30];
+	char overlay_index_buf[INET6_ADDRSTRLEN + 14];
+	const struct prefix_evpn *evp;
+
 	/* ' with addpath ID '          17
 	 * max strlen of uint32       + 10
 	 * +/- (just in case)         +  1
@@ -2652,6 +2704,23 @@ const char *bgp_debug_rdpfxpath2str(afi_t afi, safi_t safi,
 	if (addpath_valid)
 		snprintf(pathid_buf, sizeof(pathid_buf), " with addpath ID %u",
 			 addpath_id);
+
+	overlay_index_buf[0] = '\0';
+	if (overlay_index && overlay_index->type == OVERLAY_INDEX_GATEWAY_IP) {
+		char obuf[INET6_ADDRSTRLEN];
+
+		obuf[0] = '\0';
+		evp = pu.evp;
+		if (is_evpn_prefix_ipaddr_v4(evp))
+			inet_ntop(AF_INET, &overlay_index->gw_ip, obuf,
+				  sizeof(obuf));
+		else if (is_evpn_prefix_ipaddr_v6(evp))
+			inet_ntop(AF_INET6, &overlay_index->gw_ip, obuf,
+				  sizeof(obuf));
+
+		snprintf(overlay_index_buf, sizeof(overlay_index_buf),
+			 " gateway IP %s", obuf);
+	}
 
 	tag_buf[0] = '\0';
 	if (bgp_labeled_safi(safi) && num_labels) {
@@ -2672,9 +2741,10 @@ const char *bgp_debug_rdpfxpath2str(afi_t afi, safi_t safi,
 	}
 
 	if (prd)
-		snprintfrr(str, size, "RD %s %pFX%s%s %s %s",
+		snprintfrr(str, size, "RD %s %pFX%s%s%s %s %s",
 			   prefix_rd2str(prd, rd_buf, sizeof(rd_buf)), pu.p,
-			   tag_buf, pathid_buf, afi2str(afi), safi2str(safi));
+			   overlay_index_buf, tag_buf, pathid_buf, afi2str(afi),
+			   safi2str(safi));
 	else if (safi == SAFI_FLOWSPEC) {
 		char return_string[BGP_FLOWSPEC_NLRI_STRING_MAX];
 		const struct prefix_fs *fs = pu.fs;

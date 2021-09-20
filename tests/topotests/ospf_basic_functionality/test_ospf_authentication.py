@@ -29,6 +29,7 @@ import pytest
 from time import sleep
 from copy import deepcopy
 import json
+from lib.topotest import frr_unicode
 
 # Save the Current Working Directory to find configuration files.
 CWD = os.path.dirname(os.path.realpath(__file__))
@@ -54,6 +55,9 @@ from lib.topolog import logger
 from lib.topojson import build_topo_from_json, build_config_from_json
 from lib.ospf import verify_ospf_neighbor, config_ospf_interface, clear_ospf
 from ipaddress import IPv4Address
+
+pytestmark = [pytest.mark.ospfd]
+
 
 # Global variables
 topo = None
@@ -256,7 +260,7 @@ def test_ospf_authentication_simple_pass_tc28_p1(request):
     sleep(6)
     dut = "r2"
     ospf_covergence = verify_ospf_neighbor(
-        tgen, topo, dut=dut, expected=False, attempts=5
+        tgen, topo, dut=dut, expected=False, retry_timeout=10
     )
     assert ospf_covergence is not True, "setup_module :Failed \n Error:" " {}".format(
         ospf_covergence
@@ -318,7 +322,7 @@ def test_ospf_authentication_simple_pass_tc28_p1(request):
     topo_modify_change_ip = deepcopy(topo)
     intf_ip = topo_modify_change_ip["routers"]["r1"]["links"]["r2"]["ipv4"]
     topo_modify_change_ip["routers"]["r1"]["links"]["r2"]["ipv4"] = str(
-        IPv4Address(unicode(intf_ip.split("/")[0])) + 3
+        IPv4Address(frr_unicode(intf_ip.split("/")[0])) + 3
     ) + "/{}".format(intf_ip.split("/")[1])
 
     build_config_from_json(tgen, topo_modify_change_ip, save_bkup=False)
@@ -394,7 +398,7 @@ def test_ospf_authentication_md5_tc29_p1(request):
     sleep(6)
     dut = "r1"
     ospf_covergence = verify_ospf_neighbor(
-        tgen, topo, dut=dut, expected=False, attempts=3
+        tgen, topo, dut=dut, expected=False, retry_timeout=6
     )
     assert ospf_covergence is not True, "setup_module :Failed \n Error:" " {}".format(
         ospf_covergence
@@ -459,7 +463,7 @@ def test_ospf_authentication_md5_tc29_p1(request):
     sleep(6)
     dut = "r2"
     ospf_covergence = verify_ospf_neighbor(
-        tgen, topo, dut=dut, expected=False, attempts=5
+        tgen, topo, dut=dut, expected=False, retry_timeout=10
     )
     assert ospf_covergence is not True, "setup_module :Failed \n Error:" " {}".format(
         ospf_covergence
@@ -529,7 +533,7 @@ def test_ospf_authentication_md5_tc29_p1(request):
     intf_ip = topo_modify_change_ip["routers"]["r1"]["links"]["r2"]["ipv4"]
 
     topo_modify_change_ip["routers"]["r1"]["links"]["r2"]["ipv4"] = str(
-        IPv4Address(unicode(intf_ip.split("/")[0])) + 3
+        IPv4Address(frr_unicode(intf_ip.split("/")[0])) + 3
     ) + "/{}".format(intf_ip.split("/")[1])
 
     build_config_from_json(tgen, topo_modify_change_ip, save_bkup=False)
@@ -609,7 +613,7 @@ def test_ospf_authentication_different_auths_tc30_p1(request):
     step("Verify that the neighbour is not FULL between R1 and R2.")
     dut = "r1"
     ospf_covergence = verify_ospf_neighbor(
-        tgen, topo, dut=dut, expected=False, attempts=5
+        tgen, topo, dut=dut, expected=False, retry_timeout=10
     )
     assert ospf_covergence is not True, "setup_module :Failed \n Error:" " {}".format(
         ospf_covergence

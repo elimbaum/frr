@@ -70,6 +70,9 @@ from lib.bgp import (
 )
 from lib.topojson import build_topo_from_json, build_config_from_json
 
+pytestmark = [pytest.mark.bgpd, pytest.mark.staticd]
+
+
 # Reading the data from JSON File for topology and configuration creation
 jsonFile = "{}/bgp_aggregation.json".format(CWD)
 try:
@@ -415,9 +418,10 @@ def test_route_summarisation_with_summary_only_p1(request):
         result = verify_rib(
             tgen, addr_type, "r3", input_static, protocol="bgp", expected=False
         )
-        assert result is not True, (
-            "Testcase  : Failed \n "
-            "Routes are still present \n Error: {}".format(tc_name, result)
+        assert (
+            result is not True
+        ), "Testcase  : Failed \n " "Routes are still present \n Error: {}".format(
+            tc_name, result
         )
 
         result = verify_rib(tgen, addr_type, "r1", input_static_agg, protocol="bgp")
@@ -614,7 +618,9 @@ def test_route_summarisation_with_summary_only_p1(request):
                         addr_type: {
                             "unicast": {
                                 "advertise_networks": [
-                                    {"network": NETWORK_4_1[addr_type],}
+                                    {
+                                        "network": NETWORK_4_1[addr_type],
+                                    }
                                 ]
                             }
                         }
@@ -1014,7 +1020,11 @@ def test_route_summarisation_with_as_set_p1(request):
         assert result is True, "Testcase  : Failed \n Error: {}".format(tc_name, result)
 
     for addr_type in ADDR_TYPES:
-        for pfx, seq_id, network, in zip([6, 7], [60, 70], [NETWORK_3_1, NETWORK_4_1]):
+        for (
+            pfx,
+            seq_id,
+            network,
+        ) in zip([6, 7], [60, 70], [NETWORK_3_1, NETWORK_4_1]):
             prefix_list = {
                 "r1": {
                     "prefix_lists": {
