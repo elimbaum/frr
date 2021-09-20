@@ -3113,6 +3113,7 @@ stream_failure:
 	return;
 }
 
+// ELITODO make sure this aligns
 static inline void zread_rule(ZAPI_HANDLER_ARGS)
 {
 	struct zebra_pbr_rule zpr;
@@ -3133,11 +3134,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		STREAM_GETL(s, zpr.rule.seq);
 		STREAM_GETL(s, zpr.rule.priority);
 		STREAM_GETL(s, zpr.rule.unique);
-<<<<<<< HEAD
 
-=======
-		STREAM_GETC(s, zpr.rule.filter.ip_proto);
->>>>>>> master
 		STREAM_GETC(s, zpr.rule.filter.src_ip.family);
 		STREAM_GETC(s, zpr.rule.filter.src_ip.prefixlen);
 		STREAM_GET(&zpr.rule.filter.src_ip.u.prefix, s,
@@ -3158,29 +3155,34 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		STREAM_GET(&zpr.rule.action.dst_ip.u.prefix, s,
 			   prefix_blen(&zpr.rule.action.dst_ip));
 
-
 		STREAM_GETL(s, zpr.rule.filter.proto_id);
 
-		STREAM_GETL(s, zpr.rule.filter.udp_src_port);
-		STREAM_GETL(s, zpr.rule.filter.udp_dst_port);
+		STREAM_GETL(s, zpr.rule.filter.src_port);
+		STREAM_GETL(s, zpr.rule.filter.dst_port);
+
 		STREAM_GETL(s, zpr.rule.action.udp_src_port);
 		STREAM_GETL(s, zpr.rule.action.udp_dst_port);
-		STREAM_GETL(s, zpr.rule.filter.tcp_src_port);
-		STREAM_GETL(s, zpr.rule.filter.tcp_dst_port);
 		STREAM_GETL(s, zpr.rule.action.tcp_src_port);
 		STREAM_GETL(s, zpr.rule.action.tcp_dst_port);
+
 		STREAM_GETC(s, zpr.rule.filter.dsfield);
 		STREAM_GETC(s, zpr.rule.action.dsfield);
+
+		STREAM_GETC(s, zpr.rule.filter.ip_proto);
+
 		STREAM_GETL(s, zpr.rule.filter.fwmark);
+
 		STREAM_GETC(s, zpr.rule.filter.pcp);
 		STREAM_GETC(s, zpr.rule.action.pcp);
+
 		STREAM_GETC(s, zpr.rule.action.queue_id);
 		STREAM_GETW(s, zpr.rule.filter.vlan_id);
 		STREAM_GETW(s, zpr.rule.action.set_vlan_id);
 		STREAM_GETW(s, zpr.rule.filter.vlan_flags);
 		STREAM_GETW(s, zpr.rule.action.vlan_flags);
 		STREAM_GETL(s, zpr.rule.action.table);
-		STREAM_GETC(s,zpr.rule.action.nh_family);
+
+		STREAM_GETC(s, zpr.rule.action.nh_family);
 		STREAM_GETL(s, zpr.rule.action.nh_vrf_id);
 		STREAM_GETL(s, zpr.rule.action.nh_ifindex);
 		STREAM_GETL(s, zpr.rule.action.nh_type);

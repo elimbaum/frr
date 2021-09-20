@@ -517,7 +517,7 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
 
-// ELITODO: need to add new fields to the stream, and load them off at the other end.
+// ELITODO: make sure this aligns
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)
@@ -532,7 +532,6 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	stream_putl(s, pbrms->seqno);
 	stream_putl(s, pbrms->ruleno);
 	stream_putl(s, pbrms->unique);
-<<<<<<< HEAD
 
 	/* src and dest IP addresses */
 	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
@@ -543,15 +542,13 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* protocol id */
 	stream_putl(s, pbrms->match_proto_id);
 
-	/* udp ports */
-	stream_putl(s, pbrms->match_udp_src_port);
-	stream_putl(s, pbrms->match_udp_dst_port);
+	/* ports */
+	stream_putw(s, pbrms->src_prt);
+	stream_putw(s, pbrms->dst_prt);
+
+	/* port actions */
 	stream_putl(s, pbrms->action_udp_src_port);
 	stream_putl(s, pbrms->action_udp_dst_port);
-
-	/* tcp ports */
-	stream_putl(s, pbrms->match_tcp_src_port);
-	stream_putl(s, pbrms->match_tcp_dst_port);
 	stream_putl(s, pbrms->action_tcp_src_port);
 	stream_putl(s, pbrms->action_tcp_dst_port);
 
@@ -559,15 +556,12 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	stream_putc(s, pbrms->match_dsfield);
 	stream_putc(s, pbrms->action_dsfield);
 
-	/* mark */
-=======
-	stream_putc(s, pbrms->ip_proto); /* The ip_proto */
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->src, family);
-	stream_putw(s, pbrms->src_prt);
-	pbr_encode_pbr_map_sequence_prefix(s, pbrms->dst, family);
-	stream_putw(s, pbrms->dst_prt);
+	/* The ip_proto */
+	stream_putc(s, pbrms->ip_proto);
+
 	stream_putc(s, pbrms->dsfield);
->>>>>>> master
+	
+	/* mark */
 	stream_putl(s, pbrms->mark);
 
 	/* pcp */
@@ -577,6 +571,7 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* Queue ID */
 	stream_putc(s, pbrms->action_queue_id);
 
+	/* VLAN */
 	stream_putw(s, pbrms->match_vlan_id);
 	stream_putw(s, pbrms->set_vlan_id);
 	stream_putw(s, pbrms->match_vlan_flags);

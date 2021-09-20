@@ -283,7 +283,6 @@ struct dplane_ctx_rule {
 
 	/* actions for nexthop */
 	uint32_t table;
-<<<<<<< HEAD
 	uint8_t nh_family;
 	vrf_id_t nh_vrf_id;
 	ifindex_t nh_ifindex;
@@ -295,7 +294,6 @@ struct dplane_ctx_rule {
 	vrf_id_t bound_intf_vrf_id;
 	ifindex_t bound_intf_ifindex;
 	char bound_ifname[INTERFACE_NAMSIZ + 1];
-=======
 
 	/* Filter criteria */
 	uint32_t filter_bm;
@@ -305,7 +303,6 @@ struct dplane_ctx_rule {
 	struct prefix dst_ip;
 	uint8_t ip_proto;
 	char ifname[INTERFACE_NAMSIZ + 1];
->>>>>>> master
 };
 
 struct dplane_rule_info {
@@ -2715,7 +2712,6 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->action_set_vlan_id    = rule->rule.action.set_vlan_id;
 	dplane_rule->action_vlan_flags     = rule->rule.action.vlan_flags;
 
-<<<<<<< HEAD
 	dplane_rule->table = rule->rule.action.table;
 	dplane_rule->nh_family = rule->rule.action.nh_family;
 	dplane_rule->nh_vrf_id = rule->rule.action.nh_vrf_id;
@@ -2725,7 +2721,7 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->bound_intf_vrf_id  = rule->rule.bound_intf_vrf_id;
 	dplane_rule->bound_intf_ifindex = rule->rule.bound_intf_ifindex;
 	strlcpy(dplane_rule->bound_ifname, rule->rule.ifname, INTERFACE_NAMSIZ);
-=======
+
 	dplane_rule->filter_bm = rule->rule.filter.filter_bm;
 	dplane_rule->fwmark = rule->rule.filter.fwmark;
 	dplane_rule->dsfield = rule->rule.filter.dsfield;
@@ -2733,7 +2729,6 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	prefix_copy(&(dplane_rule->dst_ip), &rule->rule.filter.dst_ip);
 	prefix_copy(&(dplane_rule->src_ip), &rule->rule.filter.src_ip);
 	strlcpy(dplane_rule->ifname, rule->ifname, INTERFACE_NAMSIZ);
->>>>>>> master
 }
 /**
  * dplane_ctx_rule_init() - Initialize a context block for a PBR rule update.

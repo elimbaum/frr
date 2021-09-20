@@ -60,13 +60,9 @@ struct pbr_filter {
 	struct prefix src_ip;
 	struct prefix dst_ip;
 
-	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
+	/* Source and Destination layer 4 (tcp, udp, etc.) port numbers. */
 	uint16_t src_port;
 	uint16_t dst_port;
-	uint32_t udp_src_port;
-	uint32_t udp_dst_port;
-	uint32_t tcp_src_port;
-	uint32_t tcp_dst_port;
 	uint32_t proto_id;
 	uint8_t  pcp;
 	uint16_t vlan_id;
