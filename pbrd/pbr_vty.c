@@ -242,27 +242,17 @@ DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
 		// either user provided a protocol numeric id or name. If name, convert
 		// to numeric id.
 		if (proto_name) {
-			struct protoent *p;
-			p = getprotobyname(proto_name);
+			// lowercase it first
+			for (char * s = proto_name; *s; s++) {
+				*s = tolower(*s);
+			}
+			struct protoent * p = getprotobyname(proto_name);
+			
 			if (!p) {
-				// no match, try lowercase
-				char * lower_proto = strdup(proto_name);
-				for (char * p = lower_proto; *p; p++) {
-					*p = tolower(*p);
-				}
-
-				zlog_debug("trying lowercased protocol: %s", lower_proto);
-
-				p = getprotobyname(lower_proto);
-				free(lower_proto);
-
-				// still nothing?
-				if (!p) {
-					vty_out(vty, "Unable to convert %s to proto id\n",
-								proto_name);
-					return CMD_WARNING;
-				}
-				// if a match, fall through
+				// no match
+				vty_out(vty, "Unable to convert %s to proto id\n",
+							proto_name);
+				return CMD_WARNING;
 			}
 
 			ip_proto = p->p_proto;

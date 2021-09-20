@@ -130,7 +130,7 @@ netlink_rule_msg_encode(int cmd, const struct zebra_dplane_ctx *ctx,
 		req->frh.tos = dsfield;
 
 	/* protocol, if specified */
-	if (filter_bm & PBR_FILTER_PROTO) {
+	if (filter_bm & PBR_FILTER_IP_PROTO) {
 		if (!nl_attr_put(&req->n, buflen, FRA_IP_PROTO, &ip_proto, bytelen))
 			return 0;
 	}
