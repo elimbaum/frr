@@ -227,12 +227,8 @@ int bgp_flowspec_ip_address(enum bgp_flowspec_util_nlri_t type,
 				   BGP_FLOWSPEC_STRING_DISPLAY_MAX);
 		break;
 	case BGP_FLOWSPEC_CONVERT_TO_NON_OPAQUE:
-		if (prefix) {
-			if (prefix_local.family == AF_INET)
-				PREFIX_COPY_IPV4(prefix, &prefix_local);
-			else
-				PREFIX_COPY_IPV6(prefix, &prefix_local);
-		}
+		if (prefix)
+			prefix_copy(prefix, &prefix_local);
 		break;
 	case BGP_FLOWSPEC_VALIDATE_ONLY:
 	default:
@@ -637,17 +633,16 @@ int bgp_flowspec_match_rules_fill(uint8_t *nlri_content, int len,
 			offset += ret;
 			break;
 		default:
-			flog_err(EC_LIB_DEVELOPMENT, "%s: unknown type %d\n",
+			flog_err(EC_LIB_DEVELOPMENT, "%s: unknown type %d",
 				 __func__, type);
 		}
 	}
-	if (bpem->match_packet_length_num || bpem->match_fragment_num ||
-	    bpem->match_tcpflags_num || bpem->match_dscp_num ||
-	    bpem->match_packet_length_num || bpem->match_icmp_code_num ||
-	    bpem->match_icmp_type_num || bpem->match_port_num ||
-	    bpem->match_src_port_num || bpem->match_dst_port_num ||
-	    bpem->match_protocol_num || bpem->match_bitmask ||
-	    bpem->match_flowlabel_num)
+	if (bpem->match_packet_length_num || bpem->match_fragment_num
+	    || bpem->match_tcpflags_num || bpem->match_dscp_num
+	    || bpem->match_icmp_code_num || bpem->match_icmp_type_num
+	    || bpem->match_port_num || bpem->match_src_port_num
+	    || bpem->match_dst_port_num || bpem->match_protocol_num
+	    || bpem->match_bitmask || bpem->match_flowlabel_num)
 		bpem->type = BGP_PBR_IPSET;
 	else if ((bpem->match_bitmask_iprule & PREFIX_SRC_PRESENT) ||
 		 (bpem->match_bitmask_iprule & PREFIX_DST_PRESENT))

@@ -23,7 +23,9 @@ import time
 import datetime
 import json
 import math
-from topolog import logger
+import time
+from lib.topolog import logger
+from lib.topotest import json_cmp
 from mininet.net import Mininet
 
 
@@ -58,14 +60,14 @@ class lUtil:
     def log(self, str, level=6):
         if self.l_level > 0:
             if self.fout == "":
-                self.fout = open(self.fout_name, "w", 0)
+                self.fout = open(self.fout_name, "w")
             self.fout.write(str + "\n")
         if level <= self.l_level:
             print(str)
 
     def summary(self, str):
         if self.fsum == "":
-            self.fsum = open(self.fsum_name, "w", 0)
+            self.fsum = open(self.fsum_name, "w")
             self.fsum.write(
                 "\
 ******************************************************************************\n"
@@ -193,9 +195,14 @@ Total %-4d                                                           %-4d %d\n\
         global net
         if op != "wait":
             self.l_line += 1
+
+        if op == "jsoncmp_pass" or op == "jsoncmp_fail":
+            returnJson = True
+
         self.log(
-            "(#%d) %s:%s COMMAND:%s:%s:%s:%s:%s:"
+            "%s (#%d) %s:%s COMMAND:%s:%s:%s:%s:%s:"
             % (
+                time.asctime(),
                 self.l_total + 1,
                 self.l_filename,
                 self.l_line,
@@ -224,6 +231,33 @@ Total %-4d                                                           %-4d %d\n\
                         "WARNING: JSON load failed -- confirm command output is in JSON format."
                     )
         self.log("COMMAND OUTPUT:%s:" % report)
+
+        # JSON comparison
+        if op == "jsoncmp_pass" or op == "jsoncmp_fail":
+            try:
+                expect = json.loads(regexp)
+            except:
+                expect = None
+                self.log(
+                    "WARNING: JSON load failed -- confirm regex input is in JSON format."
+                )
+            json_diff = json_cmp(js, expect)
+            if json_diff != None:
+                if op == "jsoncmp_fail":
+                    success = True
+                else:
+                    success = False
+                    self.log("JSON DIFF:%s:" % json_diff)
+                ret = success
+            else:
+                if op == "jsoncmp_fail":
+                    success = False
+                else:
+                    success = True
+            self.result(target, success, result)
+            if js != None:
+                return js
+            return ret
 
         # Experiment: can we achieve the same match behavior via DOTALL
         # without converting newlines to spaces?
@@ -380,7 +414,8 @@ def luInclude(filename, CallOnFail=None):
         LUtil.setCallOnFail(CallOnFail)
     if filename.endswith(".py"):
         LUtil.log("luInclude: execfile " + tstFile)
-        execfile(tstFile)
+        with open(tstFile) as infile:
+            exec(infile.read())
     else:
         LUtil.log("luInclude: execTestFile " + tstFile)
         LUtil.execTestFile(tstFile)

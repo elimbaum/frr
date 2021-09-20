@@ -32,7 +32,6 @@
 #include "sockunion.h"
 #include "connected.h"
 #include "memory.h"
-#include "zebra_memory.h"
 #include "ioctl.h"
 #include "log.h"
 #include "table.h"
@@ -850,8 +849,8 @@ int ifam_read(struct ifa_msghdr *ifam)
 	bool dest_same = false;
 	char ifname[INTERFACE_NAMSIZ];
 	short ifnlen = 0;
-	char isalias = 0;
-	int flags = 0;
+	bool isalias = false;
+	uint32_t flags = 0;
 
 	ifname[0] = ifname[INTERFACE_NAMSIZ - 1] = '\0';
 
@@ -866,7 +865,13 @@ int ifam_read(struct ifa_msghdr *ifam)
 	}
 
 	if (ifnlen && strncmp(ifp->name, ifname, INTERFACE_NAMSIZ))
-		isalias = 1;
+		isalias = true;
+
+	/*
+	 * Mark the alias prefixes as secondary
+	 */
+	if (isalias)
+		SET_FLAG(flags, ZEBRA_IFA_SECONDARY);
 
 	/* N.B. The info in ifa_msghdr does not tell us whether the RTA_BRD
 	   field contains a broadcast address or a peer address, so we are
@@ -1067,7 +1072,7 @@ void rtm_read(struct rt_msghdr *rtm)
 		p.family = AF_INET;
 		p.u.prefix4 = dest.sin.sin_addr;
 		if (flags & RTF_HOST)
-			p.prefixlen = IPV4_MAX_PREFIXLEN;
+			p.prefixlen = IPV4_MAX_BITLEN;
 		else
 			p.prefixlen = ip_masklen(mask.sin.sin_addr);
 
@@ -1080,7 +1085,7 @@ void rtm_read(struct rt_msghdr *rtm)
 		p.family = AF_INET6;
 		p.u.prefix6 = dest.sin6.sin6_addr;
 		if (flags & RTF_HOST)
-			p.prefixlen = IPV6_MAX_PREFIXLEN;
+			p.prefixlen = IPV6_MAX_BITLEN;
 		else
 			p.prefixlen = ip6_masklen(mask.sin6.sin6_addr);
 
@@ -1107,7 +1112,7 @@ void rtm_read(struct rt_msghdr *rtm)
 	if (rtm->rtm_type == RTM_CHANGE)
 		rib_delete(afi, SAFI_UNICAST, VRF_DEFAULT, ZEBRA_ROUTE_KERNEL,
 			   0, zebra_flags, &p, NULL, NULL, 0, RT_TABLE_MAIN, 0,
-			   0, true, false);
+			   0, true);
 	if (rtm->rtm_type == RTM_GET || rtm->rtm_type == RTM_ADD
 	    || rtm->rtm_type == RTM_CHANGE)
 		rib_add(afi, SAFI_UNICAST, VRF_DEFAULT, ZEBRA_ROUTE_KERNEL, 0,
@@ -1116,7 +1121,7 @@ void rtm_read(struct rt_msghdr *rtm)
 	else
 		rib_delete(afi, SAFI_UNICAST, VRF_DEFAULT, ZEBRA_ROUTE_KERNEL,
 			   0, zebra_flags, &p, NULL, &nh, 0, RT_TABLE_MAIN, 0,
-			   0, true, false);
+			   0, true);
 }
 
 /* Interface function for the kernel routing table updates.  Support

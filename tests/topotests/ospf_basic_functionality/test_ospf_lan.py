@@ -29,6 +29,7 @@ import pytest
 import json
 from copy import deepcopy
 import ipaddress
+from lib.topotest import frr_unicode
 
 # Save the Current Working Directory to find configuration files.
 CWD = os.path.dirname(os.path.realpath(__file__))
@@ -69,6 +70,9 @@ from lib.ospf import (
     verify_ospf_interface,
 )
 from ipaddress import IPv4Address
+
+pytestmark = [pytest.mark.ospfd, pytest.mark.staticd]
+
 
 # Global variables
 topo = None
@@ -180,42 +184,6 @@ def teardown_module():
         # though switch is stopped once but mininet tries to stop same
         # switch again, where it ended up with exception
         pass
-
-
-def red_static(dut, config=True):
-    """Local def for Redstribute static routes inside ospf."""
-    global topo
-    tgen = get_topogen()
-    if config:
-        ospf_red = {dut: {"ospf": {"redistribute": [{"redist_type": "static"}]}}}
-    else:
-        ospf_red = {
-            dut: {
-                "ospf": {
-                    "redistribute": [{"redist_type": "static", "del_action": True}]
-                }
-            }
-        }
-    result = create_router_ospf(tgen, topo, ospf_red)
-    assert result is True, "Testcase : Failed \n Error: {}".format(result)
-
-
-def red_connected(dut, config=True):
-    """Local def for Redstribute connected routes inside ospf."""
-    global topo
-    tgen = get_topogen()
-    if config:
-        ospf_red = {dut: {"ospf": {"redistribute": [{"redist_type": "connected"}]}}}
-    else:
-        ospf_red = {
-            dut: {
-                "ospf": {
-                    "redistribute": [{"redist_type": "connected", "del_action": True}]
-                }
-            }
-        }
-    result = create_router_ospf(tgen, topo, ospf_red)
-    assert result is True, "Testcase: Failed \n Error: {}".format(result)
 
 
 # ##################################
@@ -432,7 +400,9 @@ def test_ospf_lan_tc1_p0(request):
     shutdown_bringup_interface(tgen, dut, intf, False)
 
     result = verify_ospf_neighbor(tgen, topo, dut, lan=True, expected=False)
-    assert result is not True, "Testcase {} : Failed \n Error: {}".format(
+    assert (
+        result is not True
+    ), "Testcase {} : Failed \n " "r0: OSPF neighbors-hip is up \n Error: {}".format(
         tc_name, result
     )
 
@@ -468,7 +438,7 @@ def test_ospf_lan_tc1_p0(request):
     topo_modify_change_ip = deepcopy(topo)
     intf_ip = topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"]
     topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"] = str(
-        IPv4Address(unicode(intf_ip.split("/")[0])) + 3
+        IPv4Address(frr_unicode(intf_ip.split("/")[0])) + 3
     ) + "/{}".format(intf_ip.split("/")[1])
 
     build_config_from_json(tgen, topo_modify_change_ip, save_bkup=False)
@@ -601,7 +571,7 @@ def test_ospf_lan_tc2_p0(request):
     topo_modify_change_ip = deepcopy(topo)
     intf_ip = topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"]
     topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"] = str(
-        IPv4Address(unicode(intf_ip.split("/")[0])) + 3
+        IPv4Address(frr_unicode(intf_ip.split("/")[0])) + 3
     ) + "/{}".format(intf_ip.split("/")[1])
 
     build_config_from_json(tgen, topo_modify_change_ip, save_bkup=False)
@@ -652,7 +622,7 @@ def test_ospf_lan_tc2_p0(request):
     topo_modify_change_ip = deepcopy(topo)
     intf_ip = topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"]
     topo_modify_change_ip["routers"]["r0"]["links"]["s1"]["ipv4"] = str(
-        IPv4Address(unicode(intf_ip.split("/")[0])) + 3
+        IPv4Address(frr_unicode(intf_ip.split("/")[0])) + 3
     ) + "/{}".format(int(intf_ip.split("/")[1]) + 1)
 
     build_config_from_json(tgen, topo_modify_change_ip, save_bkup=False)

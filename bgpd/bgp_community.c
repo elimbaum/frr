@@ -24,9 +24,11 @@
 #include "hash.h"
 #include "memory.h"
 #include "jhash.h"
+#include "frrstr.h"
 
 #include "bgpd/bgp_memory.h"
 #include "bgpd/bgp_community.h"
+#include "bgpd/bgp_community_alias.h"
 
 /* Hash of community attribute. */
 static struct hash *comhash;
@@ -55,14 +57,10 @@ void community_free(struct community **com)
 }
 
 /* Add one community value to the community. */
-static void community_add_val(struct community *com, uint32_t val)
+void community_add_val(struct community *com, uint32_t val)
 {
 	com->size++;
-	if (com->val)
-		com->val = XREALLOC(MTYPE_COMMUNITY_VAL, com->val,
-				    com_length(com));
-	else
-		com->val = XMALLOC(MTYPE_COMMUNITY_VAL, com_length(com));
+	com->val = XREALLOC(MTYPE_COMMUNITY_VAL, com->val, com_length(com));
 
 	val = htonl(val);
 	memcpy(com_lastval(com), &val, sizeof(uint32_t));
@@ -291,7 +289,7 @@ static void set_community_string(struct community *com, bool make_json)
 			len += strlen(" no-peer");
 			break;
 		default:
-			len += strlen(" 65536:65535");
+			len = BUFSIZ;
 			break;
 		}
 	}
@@ -449,9 +447,11 @@ static void set_community_string(struct community *com, bool make_json)
 			val = comval & 0xFFFF;
 			char buf[32];
 			snprintf(buf, sizeof(buf), "%u:%d", as, val);
-			strlcat(str, buf, len);
+			const char *com2alias = bgp_community2alias(buf);
+
+			strlcat(str, com2alias, len);
 			if (make_json) {
-				json_string = json_object_new_string(buf);
+				json_string = json_object_new_string(com2alias);
 				json_object_array_add(json_community_list,
 						      json_string);
 			}
@@ -614,13 +614,8 @@ bool community_cmp(const struct community *com1, const struct community *com2)
 struct community *community_merge(struct community *com1,
 				  struct community *com2)
 {
-	if (com1->val)
-		com1->val =
-			XREALLOC(MTYPE_COMMUNITY_VAL, com1->val,
-				 (com1->size + com2->size) * COMMUNITY_SIZE);
-	else
-		com1->val = XMALLOC(MTYPE_COMMUNITY_VAL,
-				    (com1->size + com2->size) * COMMUNITY_SIZE);
+	com1->val = XREALLOC(MTYPE_COMMUNITY_VAL, com1->val,
+			     (com1->size + com2->size) * COMMUNITY_SIZE);
 
 	memcpy(com1->val + com1->size, com2->val, com2->size * COMMUNITY_SIZE);
 	com1->size += com2->size;
@@ -647,6 +642,31 @@ enum community_token {
 	community_token_no_peer,
 	community_token_unknown
 };
+
+/* Helper to check if a given community is valid */
+static bool community_valid(const char *community)
+{
+	int octets = 0;
+	char **splits;
+	int num;
+	int invalid = 0;
+
+	frrstr_split(community, ":", &splits, &num);
+
+	for (int i = 0; i < num; i++) {
+		if (strtoul(splits[i], NULL, 10) > UINT16_MAX)
+			invalid++;
+
+		if (strlen(splits[i]) == 0)
+			invalid++;
+
+		octets++;
+		XFREE(MTYPE_TMP, splits[i]);
+	}
+	XFREE(MTYPE_TMP, splits);
+
+	return (octets < 2 || invalid) ? false : true;
+}
 
 /* Get next community token from string. */
 static const char *
@@ -780,6 +800,11 @@ community_gettoken(const char *buf, enum community_token *token, uint32_t *val)
 		uint32_t community_low = 0;
 		uint32_t community_high = 0;
 
+		if (!community_valid(p)) {
+			*token = community_token_unknown;
+			return NULL;
+		}
+
 		while (isdigit((unsigned char)*p) || *p == ':') {
 			if (*p == ':') {
 				if (separator) {
@@ -806,11 +831,6 @@ community_gettoken(const char *buf, enum community_token *token, uint32_t *val)
 			p++;
 		}
 		if (!digit) {
-			*token = community_token_unknown;
-			return NULL;
-		}
-
-		if (community_low > UINT16_MAX) {
 			*token = community_token_unknown;
 			return NULL;
 		}

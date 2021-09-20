@@ -41,7 +41,7 @@
 #include "pbr_debug.h"
 #include "pbr_vrf.h"
 
-DEFINE_MTYPE_STATIC(PBRD, PBR_INTERFACE, "PBR Interface")
+DEFINE_MTYPE_STATIC(PBRD, PBR_INTERFACE, "PBR Interface");
 
 /* Zebra structure to hold current status. */
 struct zclient *zclient;
@@ -50,8 +50,8 @@ struct pbr_interface *pbr_if_new(struct interface *ifp)
 {
 	struct pbr_interface *pbr_ifp;
 
-	zassert(ifp);
-	zassert(!ifp->info);
+	assert(ifp);
+	assert(!ifp->info);
 
 	pbr_ifp = XCALLOC(MTYPE_PBR_INTERFACE, sizeof(*pbr_ifp));
 
@@ -264,7 +264,7 @@ static void route_add_helper(struct zapi_route *api, struct nexthop_group nhg,
 
 	api->prefix.family = install_afi;
 
-	DEBUGD(&pbr_dbg_zebra, "\tEncoding %pFX", &api->prefix);
+	DEBUGD(&pbr_dbg_zebra, "    Encoding %pFX", &api->prefix);
 
 	i = 0;
 	for (ALL_NEXTHOPS(nhg, nhop)) {
@@ -284,11 +284,13 @@ static void route_add_helper(struct zapi_route *api, struct nexthop_group nhg,
 			api_nh->ifindex = nhop->ifindex;
 			break;
 		case NEXTHOP_TYPE_IPV6:
-			memcpy(&api_nh->gate.ipv6, &nhop->gate.ipv6, 16);
+			memcpy(&api_nh->gate.ipv6, &nhop->gate.ipv6,
+			       IPV6_MAX_BYTELEN);
 			break;
 		case NEXTHOP_TYPE_IPV6_IFINDEX:
 			api_nh->ifindex = nhop->ifindex;
-			memcpy(&api_nh->gate.ipv6, &nhop->gate.ipv6, 16);
+			memcpy(&api_nh->gate.ipv6, &nhop->gate.ipv6,
+			       IPV6_MAX_BYTELEN);
 			break;
 		case NEXTHOP_TYPE_BLACKHOLE:
 			api_nh->bh_type = nhop->bh_type;
@@ -407,12 +409,12 @@ static int pbr_zebra_nexthop_update(ZAPI_CALLBACK_ARGS)
 		DEBUGD(&pbr_dbg_zebra, "%s: Received Nexthop update: %pFX",
 		       __func__, &nhr.prefix);
 
-		DEBUGD(&pbr_dbg_zebra, "%s: (\tNexthops(%u)", __func__,
+		DEBUGD(&pbr_dbg_zebra, "%s:   (Nexthops(%u)", __func__,
 		       nhr.nexthop_num);
 
 		for (i = 0; i < nhr.nexthop_num; i++) {
 			DEBUGD(&pbr_dbg_zebra,
-			       "%s: \tType: %d: vrf: %d, ifindex: %d gate: %pI4",
+			       "%s:     Type: %d: vrf: %d, ifindex: %d gate: %pI4",
 			       __func__, nhr.nexthops[i].type,
 			       nhr.nexthops[i].vrf_id, nhr.nexthops[i].ifindex,
 			       &nhr.nexthops[i].gate.ipv4);
@@ -458,13 +460,13 @@ void pbr_send_rnh(struct nexthop *nhop, bool reg)
 	case NEXTHOP_TYPE_IPV4_IFINDEX:
 		p.family = AF_INET;
 		p.u.prefix4.s_addr = nhop->gate.ipv4.s_addr;
-		p.prefixlen = 32;
+		p.prefixlen = IPV4_MAX_BITLEN;
 		break;
 	case NEXTHOP_TYPE_IPV6:
 	case NEXTHOP_TYPE_IPV6_IFINDEX:
 		p.family = AF_INET6;
-		memcpy(&p.u.prefix6, &nhop->gate.ipv6, 16);
-		p.prefixlen = 128;
+		memcpy(&p.u.prefix6, &nhop->gate.ipv6, IPV6_MAX_BYTELEN);
+		p.prefixlen = IPV6_MAX_BITLEN;
 		if (IN6_IS_ADDR_LINKLOCAL(&nhop->gate.ipv6))
 			/*
 			 * Don't bother tracking link locals, just track their
@@ -515,6 +517,7 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
 
+// ELITODO: make sure this aligns
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)
@@ -539,15 +542,13 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* protocol id */
 	stream_putl(s, pbrms->match_ip_proto);
 
-	/* udp ports */
-	stream_putl(s, pbrms->match_udp_src_port);
-	stream_putl(s, pbrms->match_udp_dst_port);
+	/* ports */
+	stream_putw(s, pbrms->src_prt);
+	stream_putw(s, pbrms->dst_prt);
+
+	/* port actions */
 	stream_putl(s, pbrms->action_udp_src_port);
 	stream_putl(s, pbrms->action_udp_dst_port);
-
-	/* tcp ports */
-	stream_putl(s, pbrms->match_tcp_src_port);
-	stream_putl(s, pbrms->match_tcp_dst_port);
 	stream_putl(s, pbrms->action_tcp_src_port);
 	stream_putl(s, pbrms->action_tcp_dst_port);
 
@@ -555,6 +556,11 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	stream_putc(s, pbrms->match_dsfield);
 	stream_putc(s, pbrms->action_dsfield);
 
+	/* The ip_proto */
+	stream_putc(s, pbrms->ip_proto);
+
+	stream_putc(s, pbrms->dsfield);
+	
 	/* mark */
 	stream_putl(s, pbrms->mark);
 
@@ -565,6 +571,7 @@ static void pbr_encode_pbr_map_sequence(struct stream *s,
 	/* Queue ID */
 	stream_putc(s, pbrms->action_queue_id);
 
+	/* VLAN */
 	stream_putw(s, pbrms->match_vlan_id);
 	stream_putw(s, pbrms->set_vlan_id);
 	stream_putw(s, pbrms->match_vlan_flags);
@@ -705,7 +712,7 @@ bool pbr_send_pbr_map(struct pbr_map_sequence *pbrms,
 	 */
 	stream_putl(s, 1);
 
-	DEBUGD(&pbr_dbg_zebra, "%s: \t%s %s seq %u %d %s %u", __func__,
+	DEBUGD(&pbr_dbg_zebra, "%s:    %s %s seq %u %d %s %u", __func__,
 	       install ? "Installing" : "Deleting", pbrm->name, pbrms->seqno,
 	       install, pmi->ifp->name, pmi->delete);
 

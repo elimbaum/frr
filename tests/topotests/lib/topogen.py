@@ -222,6 +222,22 @@ class Topogen(object):
         self.peern += 1
         return self.gears[name]
 
+    def add_host(self, name, ip, defaultRoute):
+        """
+        Adds a new host to the topology. This function has the following
+        parameters:
+        * `ip`: the peer address (e.g. '1.2.3.4/24')
+        * `defaultRoute`: the peer default route (e.g. 'via 1.2.3.1')
+        """
+        if name is None:
+            name = "host{}".format(self.peern)
+        if name in self.gears:
+            raise KeyError("host already exists")
+
+        self.gears[name] = TopoHost(self, name, ip=ip, defaultRoute=defaultRoute)
+        self.peern += 1
+        return self.gears[name]
+
     def add_link(self, node1, node2, ifname1=None, ifname2=None):
         """
         Creates a connection between node1 and node2. The nodes can be the
@@ -336,7 +352,9 @@ class Topogen(object):
         for gear in self.gears.values():
             errors += gear.stop()
         if len(errors) > 0:
-            assert "Errors found post shutdown - details follow:" == 0, errors
+            logger.error(
+                "Errors found post shutdown - details follow: {}".format(errors)
+            )
 
         self.net.stop()
 
@@ -552,6 +570,8 @@ class TopoRouter(TopoGear):
     RD_SHARP = 14
     RD_BABEL = 15
     RD_PBRD = 16
+    RD_PATH = 17
+    RD_SNMP = 18
     RD = {
         RD_ZEBRA: "zebra",
         RD_RIP: "ripd",
@@ -569,6 +589,8 @@ class TopoRouter(TopoGear):
         RD_SHARP: "sharpd",
         RD_BABEL: "babeld",
         RD_PBRD: "pbrd",
+        RD_PATH: "pathd",
+        RD_SNMP: "snmpd",
     }
 
     def __init__(self, tgen, cls, name, **params):
@@ -635,6 +657,8 @@ class TopoRouter(TopoGear):
 
         # Try to find relevant old logfiles in /tmp and delete them
         map(os.remove, glob.glob("{}/{}/*.log".format(self.logdir, self.name)))
+        # Remove old valgrind files
+        map(os.remove, glob.glob("{}/{}.valgrind.*".format(self.logdir, self.name)))
         # Remove old core files
         map(os.remove, glob.glob("{}/{}/*.dmp".format(self.logdir, self.name)))
 
@@ -653,7 +677,7 @@ class TopoRouter(TopoGear):
         Possible daemon values are: TopoRouter.RD_ZEBRA, TopoRouter.RD_RIP,
         TopoRouter.RD_RIPNG, TopoRouter.RD_OSPF, TopoRouter.RD_OSPF6,
         TopoRouter.RD_ISIS, TopoRouter.RD_BGP, TopoRouter.RD_LDP,
-        TopoRouter.RD_PIM, TopoRouter.RD_PBR.
+        TopoRouter.RD_PIM, TopoRouter.RD_PBR, TopoRouter.RD_SNMP.
         """
         daemonstr = self.RD.get(daemon)
         self.logger.info('loading "{}" configuration: {}'.format(daemonstr, source))
@@ -714,7 +738,7 @@ class TopoRouter(TopoGear):
         """
         self.logger.debug("stopping")
         self.__stop_internal(False, False)
-        return self.__stop_internal()
+        return self.__stop_internal(True, False)
 
     def startDaemons(self, daemons):
         """
@@ -777,8 +801,8 @@ class TopoRouter(TopoGear):
 
         try:
             return json.loads(output)
-        except ValueError:
-            logger.warning("vtysh_cmd: failed to convert json output")
+        except ValueError as error:
+            logger.warning("vtysh_cmd: %s: failed to convert json output: %s: %s", self.name, str(output), str(error))
             return {}
 
     def vtysh_multicmd(self, commands, pretty_output=True, daemon=None):
@@ -1000,7 +1024,7 @@ def diagnose_env_linux():
     if not os.path.isdir("/tmp"):
         logger.warning("could not find /tmp for logs")
     else:
-        os.system("mkdir /tmp/topotests")
+        os.system("mkdir -p /tmp/topotests")
         # Log diagnostics to file so it can be examined later.
         fhandler = logging.FileHandler(filename="/tmp/topotests/diagnostics.txt")
         fhandler.setLevel(logging.DEBUG)
@@ -1114,6 +1138,7 @@ def diagnose_env_linux():
             logger.warning(
                 "BGP topologies are still using exabgp version 3, expect failures"
             )
+        p.close()
 
     # We want to catch all exceptions
     # pylint: disable=W0702
@@ -1122,6 +1147,7 @@ def diagnose_env_linux():
 
     # After we logged the output to file, remove the handler.
     logger.removeHandler(fhandler)
+    fhandler.close()
 
     return ret
 

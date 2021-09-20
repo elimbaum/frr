@@ -24,12 +24,11 @@
 #include "lib/lib_errors.h"
 
 #include "zebra/zebra_srte.h"
-#include "zebra/zebra_memory.h"
 #include "zebra/zebra_mpls.h"
 #include "zebra/zebra_rnh.h"
 #include "zebra/zapi_msg.h"
 
-DEFINE_MTYPE_STATIC(ZEBRA, ZEBRA_SR_POLICY, "SR Policy")
+DEFINE_MTYPE_STATIC(ZEBRA, ZEBRA_SR_POLICY, "SR Policy");
 
 static void zebra_sr_policy_deactivate(struct zebra_sr_policy *policy);
 
@@ -162,7 +161,6 @@ static int zebra_sr_policy_notify_update_client(struct zebra_sr_policy *policy,
 	stream_putw_at(s, 0, stream_get_endp(s));
 
 	client->nh_last_upd_time = monotime(NULL);
-	client->last_write_cmd = ZEBRA_NEXTHOP_UPDATE;
 	return zserv_send_message(client, s);
 
 failure:

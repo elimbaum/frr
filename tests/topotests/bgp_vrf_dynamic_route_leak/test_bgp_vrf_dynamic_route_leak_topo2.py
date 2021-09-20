@@ -78,6 +78,9 @@ from lib.bgp import (
 )
 from lib.topojson import build_topo_from_json, build_config_from_json
 
+pytestmark = [pytest.mark.bgpd, pytest.mark.staticd]
+
+
 # Reading the data from JSON File for topology creation
 jsonFile = "{}/bgp_vrf_dynamic_route_leak_topo2.json".format(CWD)
 try:
@@ -943,9 +946,10 @@ def test_modify_route_map_match_set_clauses_p1(request):
         }
 
         result = verify_bgp_rib(tgen, addr_type, "r1", input_routes_r1, expected=False)
-        assert result is not True, (
-            "Testcase {} : Failed \n Error : Routes are still "
-            "present {}".format(tc_name, result)
+        assert (
+            result is not True
+        ), "Testcase {} : Failed \n Error : Routes are still " "present {}".format(
+            tc_name, result
         )
 
     write_test_footer(tc_name)

@@ -38,6 +38,8 @@ extern "C" {
  */
 extern bool nl_attr_put(struct nlmsghdr *n, unsigned int maxlen, int type,
 			const void *data, unsigned int alen);
+extern bool nl_attr_put8(struct nlmsghdr *n, unsigned int maxlen, int type,
+			 uint8_t data);
 extern bool nl_attr_put16(struct nlmsghdr *n, unsigned int maxlen, int type,
 			  uint16_t data);
 extern bool nl_attr_put32(struct nlmsghdr *n, unsigned int maxlen, int type,
@@ -79,6 +81,9 @@ extern void nl_attr_rtnh_end(struct nlmsghdr *n, struct rtnexthop *rtnh);
 
 extern void netlink_parse_rtattr(struct rtattr **tb, int max,
 				 struct rtattr *rta, int len);
+extern void netlink_parse_rtattr_flags(struct rtattr **tb, int max,
+				 struct rtattr *rta, int len,
+				 unsigned short flags);
 extern void netlink_parse_rtattr_nested(struct rtattr **tb, int max,
 					struct rtattr *rta);
 extern const char *nl_msg_type_to_str(uint16_t msg_type);

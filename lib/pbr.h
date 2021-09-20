@@ -39,16 +39,18 @@ extern "C" {
  * specified.
  */
 struct pbr_filter {
-	uint32_t filter_bm; /* not encoded by zapi */
-#define PBR_FILTER_SRC_IP	       (1 << 0)
-#define PBR_FILTER_DST_IP	       (1 << 1)
-#define PBR_FILTER_SRC_PORT            (1 << 2)
-#define PBR_FILTER_DST_PORT            (1 << 3)
-#define PBR_FILTER_FWMARK              (1 << 4)
-#define PBR_FILTER_PROTO               (1 << 5)
-#define PBR_FILTER_SRC_PORT_RANGE      (1 << 6)
-#define PBR_FILTER_DST_PORT_RANGE      (1 << 7)
-#define PBR_FILTER_DSFIELD	       (1 << 8)
+	uint32_t filter_bm; /* not encoded by zapi
+			     */
+#define PBR_FILTER_SRC_IP		(1 << 0)
+#define PBR_FILTER_DST_IP		(1 << 1)
+#define PBR_FILTER_SRC_PORT		(1 << 2)
+#define PBR_FILTER_DST_PORT		(1 << 3)
+#define PBR_FILTER_FWMARK		(1 << 4)
+#define PBR_FILTER_PROTO		(1 << 5)
+#define PBR_FILTER_SRC_PORT_RANGE	(1 << 6)
+#define PBR_FILTER_DST_PORT_RANGE	(1 << 7)
+#define PBR_FILTER_DSFIELD		(1 << 8)
+#define PBR_FILTER_IP_PROTOCOL		(1 << 9)
 
 #define PBR_DSFIELD_DSCP (0xfc) /* Upper 6 bits of DS field: DSCP */
 #define PBR_DSFIELD_ECN (0x03)	/* Lower 2 bits of DS field: BCN */
@@ -58,14 +60,10 @@ struct pbr_filter {
 	struct prefix src_ip;
 	struct prefix dst_ip;
 
-	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
+	/* Source and Destination layer 4 (tcp, udp, etc.) port numbers. */
 	uint16_t src_port;
 	uint16_t dst_port;
-	uint32_t udp_src_port;
-	uint32_t udp_dst_port;
-	uint32_t tcp_src_port;
-	uint32_t tcp_dst_port;
-	uint32_t ip_proto;
+	uint32_t proto_id;
 	uint8_t  pcp;
 	uint16_t vlan_id;
 	uint16_t vlan_flags;
@@ -74,6 +72,9 @@ struct pbr_filter {
 
 	/* Filter with fwmark */
 	uint32_t fwmark;
+
+	/* Filter with the ip protocol */
+	uint8_t ip_proto;
 };
 
 /*

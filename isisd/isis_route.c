@@ -50,10 +50,13 @@
 #include "isis_route.h"
 #include "isis_zebra.h"
 
+DEFINE_MTYPE_STATIC(ISISD, ISIS_NEXTHOP,    "ISIS nexthop");
+DEFINE_MTYPE_STATIC(ISISD, ISIS_ROUTE_INFO, "ISIS route info");
+
 DEFINE_HOOK(isis_route_update_hook,
 	    (struct isis_area * area, struct prefix *prefix,
 	     struct isis_route_info *route_info),
-	    (area, prefix, route_info))
+	    (area, prefix, route_info));
 
 static struct isis_nexthop *nexthoplookup(struct list *nexthops, int family,
 					  union g_addr *ip, ifindex_t ifindex);
@@ -183,7 +186,7 @@ static void isis_route_add_dummy_nexthops(struct isis_route_info *rinfo,
 static struct isis_route_info *
 isis_route_info_new(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		    uint32_t cost, uint32_t depth, struct isis_sr_psid_info *sr,
-		    struct list *adjacencies)
+		    struct list *adjacencies, bool allow_ecmp)
 {
 	struct isis_route_info *rinfo;
 	struct isis_vertex_adj *vadj;
@@ -205,6 +208,8 @@ isis_route_info_new(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		if (CHECK_FLAG(im->options, F_ISIS_UNIT_TEST)) {
 			isis_route_add_dummy_nexthops(rinfo, sadj->id, sr,
 						      label_stack);
+			if (!allow_ecmp)
+				break;
 			continue;
 		}
 
@@ -216,11 +221,11 @@ isis_route_info_new(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		/* update neighbor router address */
 		switch (prefix->family) {
 		case AF_INET:
-			if (depth == 2 && prefix->prefixlen == 32)
+			if (depth == 2 && prefix->prefixlen == IPV4_MAX_BITLEN)
 				adj->router_address = prefix->u.prefix4;
 			break;
 		case AF_INET6:
-			if (depth == 2 && prefix->prefixlen == 128
+			if (depth == 2 && prefix->prefixlen == IPV6_MAX_BITLEN
 			    && (!src_p || !src_p->prefixlen)) {
 				adj->router_address6 = prefix->u.prefix6;
 			}
@@ -233,6 +238,8 @@ isis_route_info_new(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		}
 		adjinfo2nexthop(prefix->family, rinfo->nexthops, adj, sr,
 				label_stack);
+		if (!allow_ecmp)
+			break;
 	}
 
 	rinfo->cost = cost;
@@ -270,6 +277,22 @@ static bool isis_sr_psid_info_same(struct isis_sr_psid_info *new,
 
 	if (new->sid.flags != old->sid.flags
 	    || new->sid.value != old->sid.value)
+		return false;
+
+	return true;
+}
+
+static bool isis_label_stack_same(struct mpls_label_stack *new,
+				  struct mpls_label_stack *old)
+{
+	if (!new && !old)
+		return true;
+	if (!new || !old)
+		return false;
+	if (new->num_labels != old->num_labels)
+		return false;
+	if (memcmp(&new->label, &old->label,
+		   sizeof(mpls_label_t) * new->num_labels))
 		return false;
 
 	return true;
@@ -323,6 +346,12 @@ static int isis_route_info_same(struct isis_route_info *new,
 				snprintf(buf, buf_size, "nhop SR label");
 			return 0;
 		}
+		if (!isis_label_stack_same(new_nh->label_stack,
+					   old_nh->label_stack)) {
+			if (buf)
+				snprintf(buf, buf_size, "nhop label stack");
+			return 0;
+		}
 	}
 
 	/* only the resync flag needs to be checked */
@@ -339,8 +368,8 @@ static int isis_route_info_same(struct isis_route_info *new,
 struct isis_route_info *
 isis_route_create(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		  uint32_t cost, uint32_t depth, struct isis_sr_psid_info *sr,
-		  struct list *adjacencies, struct isis_area *area,
-		  struct route_table *table)
+		  struct list *adjacencies, bool allow_ecmp,
+		  struct isis_area *area, struct route_table *table)
 {
 	struct route_node *route_node;
 	struct isis_route_info *rinfo_new, *rinfo_old, *route_info = NULL;
@@ -350,7 +379,7 @@ isis_route_create(struct prefix *prefix, struct prefix_ipv6 *src_p,
 		return NULL;
 
 	rinfo_new = isis_route_info_new(prefix, src_p, cost, depth, sr,
-					adjacencies);
+					adjacencies, allow_ecmp);
 	route_node = srcdest_rnode_get(table, prefix, src_p);
 
 	rinfo_old = route_node->info;
@@ -396,8 +425,8 @@ isis_route_create(struct prefix *prefix, struct prefix_ipv6 *src_p,
 	return route_info;
 }
 
-static void isis_route_delete(struct isis_area *area, struct route_node *rode,
-			      struct route_table *table)
+void isis_route_delete(struct isis_area *area, struct route_node *rode,
+		       struct route_table *table)
 {
 	struct isis_route_info *rinfo;
 	char buff[SRCDEST2STR_BUFFER];
@@ -462,9 +491,6 @@ static void isis_route_update(struct isis_area *area, struct prefix *prefix,
 		SET_FLAG(route_info->flag, ISIS_ROUTE_FLAG_ZEBRA_SYNCED);
 		UNSET_FLAG(route_info->flag, ISIS_ROUTE_FLAG_ZEBRA_RESYNC);
 	} else {
-		if (!CHECK_FLAG(route_info->flag, ISIS_ROUTE_FLAG_ZEBRA_SYNCED))
-			return;
-
 		/* Uninstall Prefix-SID label. */
 		if (route_info->sr.present)
 			isis_zebra_prefix_sid_uninstall(
@@ -510,6 +536,10 @@ static void _isis_route_verify_table(struct isis_area *area,
 							 src_p);
 			if (rnode_bck) {
 				rinfo->backup = rnode_bck->info;
+				UNSET_FLAG(rinfo->flag,
+					   ISIS_ROUTE_FLAG_ZEBRA_SYNCED);
+			} else if (rinfo->backup) {
+				rinfo->backup = NULL;
 				UNSET_FLAG(rinfo->flag,
 					   ISIS_ROUTE_FLAG_ZEBRA_SYNCED);
 			}
@@ -623,6 +653,10 @@ void isis_route_verify_merge(struct isis_area *area,
 				tables_backup[level - 1], prefix, src_p);
 			if (rnode_bck) {
 				rinfo->backup = rnode_bck->info;
+				UNSET_FLAG(rinfo->flag,
+					   ISIS_ROUTE_FLAG_ZEBRA_SYNCED);
+			} else if (rinfo->backup) {
+				rinfo->backup = NULL;
 				UNSET_FLAG(rinfo->flag,
 					   ISIS_ROUTE_FLAG_ZEBRA_SYNCED);
 			}

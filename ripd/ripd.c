@@ -56,11 +56,11 @@
 /* UDP receive buffer size */
 #define RIP_UDP_RCV_BUF 41600
 
-DEFINE_MGROUP(RIPD, "ripd")
-DEFINE_MTYPE_STATIC(RIPD, RIP, "RIP structure")
-DEFINE_MTYPE_STATIC(RIPD, RIP_VRF_NAME, "RIP VRF name")
-DEFINE_MTYPE_STATIC(RIPD, RIP_INFO, "RIP route info")
-DEFINE_MTYPE_STATIC(RIPD, RIP_DISTANCE, "RIP distance")
+DEFINE_MGROUP(RIPD, "ripd");
+DEFINE_MTYPE_STATIC(RIPD, RIP, "RIP structure");
+DEFINE_MTYPE_STATIC(RIPD, RIP_VRF_NAME, "RIP VRF name");
+DEFINE_MTYPE_STATIC(RIPD, RIP_INFO, "RIP route info");
+DEFINE_MTYPE_STATIC(RIPD, RIP_DISTANCE, "RIP distance");
 
 /* Prototypes. */
 static void rip_output_process(struct connected *, struct sockaddr_in *, int,
@@ -495,7 +495,7 @@ static void rip_rte_process(struct rte *rte, struct sockaddr_in *from,
 		rte->metric = RIP_METRIC_INFINITY;
 
 	/* Set nexthop pointer. */
-	if (rte->nexthop.s_addr == 0)
+	if (rte->nexthop.s_addr == INADDR_ANY)
 		nexthop = &from->sin_addr;
 	else
 		nexthop = &rte->nexthop;
@@ -592,7 +592,7 @@ static void rip_rte_process(struct rte *rte, struct sockaddr_in *from,
 			/* Only routes directly connected to an interface
 			 * (nexthop == 0)
 			 * may have a valid NULL distance */
-			if (rinfo->nh.gate.ipv4.s_addr != 0)
+			if (rinfo->nh.gate.ipv4.s_addr != INADDR_ANY)
 				old_dist = old_dist
 						   ? old_dist
 						   : ZEBRA_RIP_DISTANCE_DEFAULT;
@@ -698,7 +698,6 @@ static void rip_packet_dump(struct rip_packet *packet, int size,
 	caddr_t lim;
 	struct rte *rte;
 	const char *command_str;
-	char pbuf[BUFSIZ], nbuf[BUFSIZ];
 	uint8_t netmask = 0;
 	uint8_t *p;
 
@@ -766,24 +765,18 @@ static void rip_packet_dump(struct rip_packet *packet, int size,
 				}
 			} else
 				zlog_debug(
-					"  %s/%d -> %s family %d tag %" ROUTE_TAG_PRI
+					"  %pI4/%d -> %pI4 family %d tag %" ROUTE_TAG_PRI
 					" metric %ld",
-					inet_ntop(AF_INET, &rte->prefix, pbuf,
-						  BUFSIZ),
-					netmask,
-					inet_ntop(AF_INET, &rte->nexthop, nbuf,
-						  BUFSIZ),
+					&rte->prefix, netmask, &rte->nexthop,
 					ntohs(rte->family),
 					(route_tag_t)ntohs(rte->tag),
 					(unsigned long)ntohl(rte->metric));
 		} else {
-			zlog_debug(
-				"  %s family %d tag %" ROUTE_TAG_PRI
-				" metric %ld",
-				inet_ntop(AF_INET, &rte->prefix, pbuf, BUFSIZ),
-				ntohs(rte->family),
-				(route_tag_t)ntohs(rte->tag),
-				(unsigned long)ntohl(rte->metric));
+			zlog_debug("  %pI4 family %d tag %" ROUTE_TAG_PRI
+				   " metric %ld",
+				   &rte->prefix, ntohs(rte->family),
+				   (route_tag_t)ntohs(rte->tag),
+				   (unsigned long)ntohl(rte->metric));
 		}
 	}
 }
@@ -2150,13 +2143,14 @@ void rip_output_process(struct connected *ifc, struct sockaddr_in *to,
 					       &rp->p)) {
 					if ((ifc->address->prefixlen
 					     != rp->p.prefixlen)
-					    && (rp->p.prefixlen != 32))
+					    && (rp->p.prefixlen
+						!= IPV4_MAX_BITLEN))
 						continue;
 				} else {
 					memcpy(&classfull, &rp->p,
 					       sizeof(struct prefix_ipv4));
 					apply_classful_mask_ipv4(&classfull);
-					if (rp->p.u.prefix4.s_addr != 0
+					if (rp->p.u.prefix4.s_addr != INADDR_ANY
 					    && classfull.prefixlen
 						       != rp->p.prefixlen)
 						continue;
@@ -2436,7 +2430,7 @@ static void rip_update_interface(struct connected *ifc, uint8_t version,
 				/* use specified broadcast or peer destination
 				 * addr */
 				to.sin_addr = ifc->destination->u.prefix4;
-			else if (ifc->address->prefixlen < IPV4_MAX_PREFIXLEN)
+			else if (ifc->address->prefixlen < IPV4_MAX_BITLEN)
 				/* calculate the appropriate broadcast address
 				 */
 				to.sin_addr.s_addr = ipv4_broadcast_addr(
@@ -2857,23 +2851,6 @@ void rip_event(struct rip *rip, enum rip_event event, int sock)
 		break;
 	}
 }
-
-#if 0
-static void
-rip_update_default_metric (void)
-{
-  struct route_node *np;
-  struct rip_info *rinfo = NULL;
-  struct list *list = NULL;
-  struct listnode *listnode = NULL;
-
-  for (np = route_top (rip->table); np; np = route_next (np))
-    if ((list = np->info) != NULL)
-      for (ALL_LIST_ELEMENTS_RO (list, listnode, rinfo))
-        if (rinfo->type != ZEBRA_ROUTE_RIP && rinfo->type != ZEBRA_ROUTE_CONNECT)
-          rinfo->metric = rip->default_metric;
-}
-#endif
 
 struct rip_distance *rip_distance_new(void)
 {
@@ -3656,16 +3633,16 @@ static int rip_vrf_enable(struct vrf *vrf)
 			char oldpath[XPATH_MAXLEN];
 			char newpath[XPATH_MAXLEN];
 
-			rip_dnode = yang_dnode_get(
+			rip_dnode = yang_dnode_getf(
 				running_config->dnode,
 				"/frr-ripd:ripd/instance[vrf='%s']/vrf",
 				old_vrf_name);
 			if (rip_dnode) {
-				yang_dnode_get_path(rip_dnode->parent, oldpath,
-						    sizeof(oldpath));
+				yang_dnode_get_path(lyd_parent(rip_dnode),
+						    oldpath, sizeof(oldpath));
 				yang_dnode_change_leaf(rip_dnode, vrf->name);
-				yang_dnode_get_path(rip_dnode->parent, newpath,
-						    sizeof(newpath));
+				yang_dnode_get_path(lyd_parent(rip_dnode),
+						    newpath, sizeof(newpath));
 				nb_running_move_tree(oldpath, newpath);
 				running_config->version++;
 			}
@@ -3714,6 +3691,8 @@ void rip_vrf_init(void)
 {
 	vrf_init(rip_vrf_new, rip_vrf_enable, rip_vrf_disable, rip_vrf_delete,
 		 rip_vrf_enable);
+
+	vrf_cmd_init(NULL, &ripd_privs);
 }
 
 void rip_vrf_terminate(void)
@@ -3745,9 +3724,6 @@ void rip_init(void)
 	prefix_list_init();
 	prefix_list_add_hook(rip_distribute_update_all);
 	prefix_list_delete_hook(rip_distribute_update_all);
-
-	/* Distribute list install. */
-	distribute_list_init(RIP_NODE);
 
 	/* Route-map */
 	rip_route_map_init();

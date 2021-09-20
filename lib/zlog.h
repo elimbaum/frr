@@ -25,18 +25,40 @@
 #include <unistd.h>
 #include <sys/uio.h>
 
+#include <assert.h>
+
 #include "atomlist.h"
 #include "frrcu.h"
 #include "memory.h"
 #include "hook.h"
+#include "printfrr.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+DECLARE_MGROUP(LOG);
+
 extern char zlog_prefix[];
 extern size_t zlog_prefixsz;
 extern int zlog_tmpdirfd;
+extern int zlog_instance;
+extern const char *zlog_progname;
+
+struct xref_logmsg {
+	struct xref xref;
+
+	const char *fmtstring;
+	uint32_t priority;
+	uint32_t ec;
+	const char *args;
+};
+
+struct xrefdata_logmsg {
+	struct xrefdata xrefdata;
+
+	/* nothing more here right now */
+};
 
 /* These functions are set up to write to stdout/stderr without explicit
  * initialization and/or before config load.  There is no need to call e.g.
@@ -45,7 +67,9 @@ extern int zlog_tmpdirfd;
  * determine wether something is a log message or something else.
  */
 
-extern void vzlog(int prio, const char *fmt, va_list ap);
+extern void vzlogx(const struct xref_logmsg *xref, int prio,
+		   const char *fmt, va_list ap);
+#define vzlog(prio, ...) vzlogx(NULL, prio, __VA_ARGS__)
 
 PRINTFRR(2, 3)
 static inline void zlog(int prio, const char *fmt, ...)
@@ -57,11 +81,50 @@ static inline void zlog(int prio, const char *fmt, ...)
 	va_end(ap);
 }
 
-#define zlog_err(...)    zlog(LOG_ERR, __VA_ARGS__)
-#define zlog_warn(...)   zlog(LOG_WARNING, __VA_ARGS__)
-#define zlog_info(...)   zlog(LOG_INFO, __VA_ARGS__)
-#define zlog_notice(...) zlog(LOG_NOTICE, __VA_ARGS__)
-#define zlog_debug(...)  zlog(LOG_DEBUG, __VA_ARGS__)
+PRINTFRR(2, 3)
+static inline void zlog_ref(const struct xref_logmsg *xref,
+			    const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vzlogx(xref, xref->priority, fmt, ap);
+	va_end(ap);
+}
+
+#define _zlog_ecref(ec_, prio, msg, ...)                                       \
+	do {                                                                   \
+		static struct xrefdata _xrefdata = {                           \
+			.xref = NULL,                                          \
+			.uid = {},                                             \
+			.hashstr = (msg),                                      \
+			.hashu32 = {(prio), (ec_)},                            \
+		};                                                             \
+		static const struct xref_logmsg _xref __attribute__(           \
+			(used)) = {                                            \
+			.xref = XREF_INIT(XREFT_LOGMSG, &_xrefdata, __func__), \
+			.fmtstring = (msg),                                    \
+			.priority = (prio),                                    \
+			.ec = (ec_),                                           \
+			.args = (#__VA_ARGS__),                                \
+		};                                                             \
+		XREF_LINK(_xref.xref);                                         \
+		zlog_ref(&_xref, (msg), ##__VA_ARGS__);                        \
+	} while (0)
+
+#define zlog_err(...)    _zlog_ecref(0, LOG_ERR, __VA_ARGS__)
+#define zlog_warn(...)   _zlog_ecref(0, LOG_WARNING, __VA_ARGS__)
+#define zlog_info(...)   _zlog_ecref(0, LOG_INFO, __VA_ARGS__)
+#define zlog_notice(...) _zlog_ecref(0, LOG_NOTICE, __VA_ARGS__)
+#define zlog_debug(...)  _zlog_ecref(0, LOG_DEBUG, __VA_ARGS__)
+
+#define flog_err(ferr_id, format, ...)                                         \
+	_zlog_ecref(ferr_id, LOG_ERR, format, ## __VA_ARGS__)
+#define flog_warn(ferr_id, format, ...)                                        \
+	_zlog_ecref(ferr_id, LOG_WARNING, format, ## __VA_ARGS__)
+
+#define flog_err_sys(ferr_id, format, ...)                                     \
+	_zlog_ecref(ferr_id, LOG_ERR, format, ## __VA_ARGS__)
 
 extern void zlog_sigsafe(const char *text, size_t len);
 
@@ -83,9 +146,19 @@ extern void zlog_sigsafe(const char *text, size_t len);
 struct zlog_msg;
 
 extern int zlog_msg_prio(struct zlog_msg *msg);
+extern const struct xref_logmsg *zlog_msg_xref(struct zlog_msg *msg);
 
-/* pass NULL as textlen if you don't need it. */
+/* text is NOT \0 terminated; instead there is a \n after textlen since the
+ * logging targets would jump extra hoops otherwise for a single byte.  (the
+ * \n is not included in textlen)
+ *
+ * calling this with NULL textlen is likely wrong.
+ * use  "%.*s", (int)textlen, text  when passing to printf-like functions
+ */
 extern const char *zlog_msg_text(struct zlog_msg *msg, size_t *textlen);
+
+extern void zlog_msg_args(struct zlog_msg *msg, size_t *hdrlen,
+			  size_t *n_argpos, const struct fmt_outpos **argpos);
 
 /* timestamp formatting control flags */
 
@@ -102,8 +175,17 @@ extern const char *zlog_msg_text(struct zlog_msg *msg, size_t *textlen);
 /* default is local time zone */
 #define ZLOG_TS_UTC		(1 << 10)
 
-extern size_t zlog_msg_ts(struct zlog_msg *msg, char *out, size_t outsz,
+extern size_t zlog_msg_ts(struct zlog_msg *msg, struct fbuf *out,
 			  uint32_t flags);
+
+/* "mmm dd hh:mm:ss" for RFC3164 syslog.  Only ZLOG_TS_UTC for flags. */
+extern size_t zlog_msg_ts_3164(struct zlog_msg *msg, struct fbuf *out,
+			       uint32_t flags);
+
+/* currently just returns the current PID/TID since we never write another
+ * thread's messages
+ */
+extern void zlog_msg_pid(struct zlog_msg *msg, intmax_t *pid, intmax_t *tid);
 
 /* This list & struct implements the actual logging targets.  It is accessed
  * lock-free from all threads, and thus MUST only be changed atomically, i.e.
@@ -125,7 +207,7 @@ extern size_t zlog_msg_ts(struct zlog_msg *msg, char *out, size_t outsz,
  * additional options.  It MUST be the first field in that larger struct.
  */
 
-PREDECL_ATOMLIST(zlog_targets)
+PREDECL_ATOMLIST(zlog_targets);
 struct zlog_target {
 	struct zlog_targets_item head;
 
@@ -169,23 +251,33 @@ extern void zlog_init(const char *progname, const char *protoname,
 		      unsigned short instance, uid_t uid, gid_t gid);
 DECLARE_HOOK(zlog_init, (const char *progname, const char *protoname,
 			 unsigned short instance, uid_t uid, gid_t gid),
-			(progname, protoname, instance, uid, gid))
+			(progname, protoname, instance, uid, gid));
 
 extern void zlog_fini(void);
-DECLARE_KOOH(zlog_fini, (), ())
+DECLARE_KOOH(zlog_fini, (), ());
+
+extern void zlog_set_prefix_ec(bool enable);
+extern bool zlog_get_prefix_ec(void);
+extern void zlog_set_prefix_xid(bool enable);
+extern bool zlog_get_prefix_xid(void);
 
 /* for tools & test programs, i.e. anything not a daemon.
  * (no cleanup needed at exit)
  */
 extern void zlog_aux_init(const char *prefix, int prio_min);
 DECLARE_HOOK(zlog_aux_init, (const char *prefix, int prio_min),
-			    (prefix, prio_min))
+			    (prefix, prio_min));
 
 extern void zlog_startup_end(void);
 
 extern void zlog_tls_buffer_init(void);
 extern void zlog_tls_buffer_flush(void);
 extern void zlog_tls_buffer_fini(void);
+
+/* Enable or disable 'immediate' output - default is to buffer messages. */
+extern void zlog_set_immediate(bool set_p);
+
+extern const char *zlog_priority_str(int priority);
 
 #ifdef __cplusplus
 }

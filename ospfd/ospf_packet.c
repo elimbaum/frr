@@ -54,7 +54,7 @@
 #include "ospfd/ospf_dump.h"
 #include "ospfd/ospf_errors.h"
 #include "ospfd/ospf_zebra.h"
-#include "ospfd/ospf_gr_helper.h"
+#include "ospfd/ospf_gr.h"
 
 /*
  * OSPF Fragmentation / fragmented writes
@@ -799,7 +799,13 @@ static int ospf_write(struct thread *thread)
 				&iph.ip_dst, iph.ip_id, iph.ip_off,
 				iph.ip_len, oi->ifp->name, oi->ifp->mtu);
 
-		if (ret < 0)
+		/* sendmsg will return EPERM if firewall is blocking sending.
+		 * This is a normal situation when 'ip nhrp map multicast xxx'
+		 * is being used to send multicast packets to DMVPN peers. In
+		 * that case the original message is blocked with iptables rule
+		 * causing the EPERM result
+		 */
+		if (ret < 0 && errno != EPERM)
 			flog_err(
 				EC_LIB_SOCKET,
 				"*** sendmsg in ospf_write failed to %pI4, id %d, off %d, len %d, interface %s, mtu %u: %s",
@@ -907,8 +913,11 @@ static void ospf_hello(struct ip *iph, struct ospf_header *ospfh,
 
 	/* Compare network mask. */
 	/* Checking is ignored for Point-to-Point and Virtual link. */
+	/* Checking is also ignored for Point-to-Multipoint with /32 prefix */
 	if (oi->type != OSPF_IFTYPE_POINTOPOINT
-	    && oi->type != OSPF_IFTYPE_VIRTUALLINK)
+	    && oi->type != OSPF_IFTYPE_VIRTUALLINK
+	    && !(oi->type == OSPF_IFTYPE_POINTOMULTIPOINT
+		 && oi->address->prefixlen == IPV4_MAX_BITLEN))
 		if (oi->address->prefixlen != p.prefixlen) {
 			flog_warn(
 				EC_OSPF_PACKET,
@@ -1853,9 +1862,9 @@ static void ospf_ls_upd(struct ospf *ospf, struct ip *iph,
 		return;
 	}
 
-	/* Get list of LSAs from Link State Update packet. - Also perorms Stages
-	 * 1 (validate LSA checksum) and 2 (check for LSA consistent type)
-	 * of section 13.
+	/* Get list of LSAs from Link State Update packet. - Also performs
+	 * Stages 1 (validate LSA checksum) and 2 (check for LSA consistent
+	 * type) of section 13.
 	 */
 	lsas = ospf_ls_upd_list_lsa(nbr, s, oi, size);
 
@@ -1881,20 +1890,10 @@ static void ospf_ls_upd(struct ospf *ospf, struct ip *iph,
 		struct ospf_lsa *ls_ret, *current;
 		int ret = 1;
 
-		if (IS_DEBUG_OSPF_NSSA) {
-			char buf1[INET_ADDRSTRLEN];
-			char buf2[INET_ADDRSTRLEN];
-			char buf3[INET_ADDRSTRLEN];
-
-			zlog_debug("LSA Type-%d from %s, ID: %s, ADV: %s",
-				   lsa->data->type,
-				   inet_ntop(AF_INET, &ospfh->router_id, buf1,
-					     INET_ADDRSTRLEN),
-				   inet_ntop(AF_INET, &lsa->data->id, buf2,
-					     INET_ADDRSTRLEN),
-				   inet_ntop(AF_INET, &lsa->data->adv_router,
-					     buf3, INET_ADDRSTRLEN));
-		}
+		if (IS_DEBUG_OSPF(lsa, LSA))
+			zlog_debug("LSA Type-%d from %pI4, ID: %pI4, ADV: %pI4",
+				   lsa->data->type, &ospfh->router_id,
+				   &lsa->data->id, &lsa->data->adv_router);
 
 		listnode_delete(lsas,
 				lsa); /* We don't need it in list anymore */
@@ -1940,19 +1939,11 @@ static void ospf_ls_upd(struct ospf *ospf, struct ip *iph,
 		if (lsa->data->type == OSPF_ROUTER_LSA)
 			if (!IPV4_ADDR_SAME(&lsa->data->id,
 					    &lsa->data->adv_router)) {
-				char buf1[INET_ADDRSTRLEN];
-				char buf2[INET_ADDRSTRLEN];
-				char buf3[INET_ADDRSTRLEN];
-
-				flog_err(EC_OSPF_ROUTER_LSA_MISMATCH,
-					 "Incoming Router-LSA from %s with Adv-ID[%s] != LS-ID[%s]",
-					 inet_ntop(AF_INET, &ospfh->router_id,
-						   buf1, INET_ADDRSTRLEN),
-					 inet_ntop(AF_INET, &lsa->data->id,
-						   buf2, INET_ADDRSTRLEN),
-					 inet_ntop(AF_INET,
-						   &lsa->data->adv_router, buf3,
-						   INET_ADDRSTRLEN));
+				flog_err(
+					EC_OSPF_ROUTER_LSA_MISMATCH,
+					"Incoming Router-LSA from %pI4 with Adv-ID[%pI4] != LS-ID[%pI4]",
+					&ospfh->router_id, &lsa->data->id,
+					&lsa->data->adv_router);
 				flog_err(
 					EC_OSPF_DOMAIN_CORRUPT,
 					"OSPF domain compromised by attack or corruption. Verify correct operation of -ALL- OSPF routers.");
@@ -2034,9 +2025,11 @@ static void ospf_ls_upd(struct ospf *ospf, struct ip *iph,
 
 				ospf_ls_ack_send(nbr, lsa);
 
-				ospf_opaque_self_originated_lsa_received(nbr,
-									 lsa);
-				continue;
+				if (!ospf->gr_info.restart_in_progress) {
+					ospf_opaque_self_originated_lsa_received(
+						nbr, lsa);
+					continue;
+				}
 			}
 		}
 
@@ -2222,6 +2215,9 @@ static void ospf_ls_upd(struct ospf *ospf, struct ip *iph,
 
 	assert(listcount(lsas) == 0);
 	list_delete(&lsas);
+
+	if (ospf->gr_info.restart_in_progress)
+		ospf_gr_check_lsdb_consistency(oi->ospf, oi->area);
 }
 
 /* OSPF Link State Acknowledgment message read -- RFC2328 Section 13.7. */
@@ -2443,6 +2439,11 @@ static int ospf_check_network_mask(struct ospf_interface *oi,
 
 	if (oi->type == OSPF_IFTYPE_POINTOPOINT
 	    || oi->type == OSPF_IFTYPE_VIRTUALLINK)
+		return 1;
+
+	/* Ignore mask check for max prefix length (32) */
+	if (oi->type == OSPF_IFTYPE_POINTOMULTIPOINT
+	    && oi->address->prefixlen == IPV4_MAX_BITLEN)
 		return 1;
 
 	masklen2ip(oi->address->prefixlen, &mask);
@@ -2987,6 +2988,16 @@ static enum ospf_read_return_enum ospf_read_helper(struct ospf *ospf)
 		}
 	}
 
+	if (ospf->vrf_id == VRF_DEFAULT && ospf->vrf_id != ifp->vrf_id) {
+		/*
+		 * We may have a situation where l3mdev_accept == 1
+		 * let's just kindly drop the packet and move on.
+		 * ospf really really really does not like when
+		 * we receive the same packet multiple times.
+		 */
+		return OSPF_READ_CONTINUE;
+	}
+
 	/* Self-originated packet should be discarded silently. */
 	if (ospf_if_lookup_by_local_addr(ospf, NULL, iph->ip_src)) {
 		if (IS_DEBUG_OSPF_PACKET(0, RECV)) {
@@ -3035,17 +3046,11 @@ static enum ospf_read_return_enum ospf_read_helper(struct ospf *ospf)
 
 	/* If incoming interface is passive one, ignore it. */
 	if (oi && OSPF_IF_PASSIVE_STATUS(oi) == OSPF_IF_PASSIVE) {
-		char buf[3][INET_ADDRSTRLEN];
-
 		if (IS_DEBUG_OSPF_EVENT)
 			zlog_debug(
-				"ignoring packet from router %s sent to %s, received on a passive interface, %s",
-				inet_ntop(AF_INET, &ospfh->router_id, buf[0],
-					  sizeof(buf[0])),
-				inet_ntop(AF_INET, &iph->ip_dst, buf[1],
-					  sizeof(buf[1])),
-				inet_ntop(AF_INET, &oi->address->u.prefix4,
-					  buf[2], sizeof(buf[2])));
+				"ignoring packet from router %pI4 sent to %pI4, received on a passive interface, %pI4",
+				&ospfh->router_id, &iph->ip_dst,
+				&oi->address->u.prefix4);
 
 		if (iph->ip_dst.s_addr == htonl(OSPF_ALLSPFROUTERS)) {
 			/* Try to fix multicast membership.
@@ -3087,16 +3092,11 @@ static enum ospf_read_return_enum ospf_read_helper(struct ospf *ospf)
 				  &iph->ip_src, ifp->name);
 		return OSPF_READ_CONTINUE;
 	} else if (oi->state == ISM_Down) {
-		char buf[2][INET_ADDRSTRLEN];
-
 		flog_warn(
 			EC_OSPF_PACKET,
-			"Ignoring packet from %s to %s received on interface that is down [%s]; interface flags are %s",
-			inet_ntop(AF_INET, &iph->ip_src, buf[0],
-				  sizeof(buf[0])),
-			inet_ntop(AF_INET, &iph->ip_dst, buf[1],
-				  sizeof(buf[1])),
-			ifp->name, if_flag_dump(ifp->flags));
+			"Ignoring packet from %pI4 to %pI4 received on interface that is down [%s]; interface flags are %s",
+			&iph->ip_src, &iph->ip_dst, ifp->name,
+			if_flag_dump(ifp->flags));
 		/* Fix multicast memberships? */
 		if (iph->ip_dst.s_addr == htonl(OSPF_ALLSPFROUTERS))
 			OI_MEMBER_JOINED(oi, MEMBER_ALLROUTERS);
@@ -3580,13 +3580,12 @@ static int ospf_make_ls_upd(struct ospf_interface *oi, struct list *update,
 		struct lsa_header *lsah;
 		uint16_t ls_age;
 
-		if (IS_DEBUG_OSPF_EVENT)
-			zlog_debug("ospf_make_ls_upd: List Iteration %d",
-				   count);
-
 		lsa = listgetdata(node);
-
 		assert(lsa->data);
+
+		if (IS_DEBUG_OSPF_EVENT)
+			zlog_debug("%s: List Iteration %d LSA[%s]", __func__,
+				   count, dump_lsa_key(lsa));
 
 		/* Will it fit? Minimum it has to fit atleast one */
 		if ((length + delta + ntohs(lsa->data->length) > size_noauth) &&
@@ -4269,9 +4268,9 @@ void ospf_ls_ack_send(struct ospf_neighbor *nbr, struct ospf_lsa *lsa)
 	struct ospf_interface *oi = nbr->oi;
 
 	if (IS_GRACE_LSA(lsa)) {
-		if (IS_DEBUG_OSPF_GR_HELPER)
+		if (IS_DEBUG_OSPF_GR)
 			zlog_debug("%s, Sending GRACE ACK to Restarter.",
-				   __PRETTY_FUNCTION__);
+				   __func__);
 	}
 
 	if (listcount(oi->ls_ack_direct.ls_ack) == 0)

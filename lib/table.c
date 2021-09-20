@@ -29,8 +29,8 @@
 #include "sockunion.h"
 #include "libfrr_trace.h"
 
-DEFINE_MTYPE_STATIC(LIB, ROUTE_TABLE, "Route table")
-DEFINE_MTYPE(LIB, ROUTE_NODE, "Route node")
+DEFINE_MTYPE_STATIC(LIB, ROUTE_TABLE, "Route table");
+DEFINE_MTYPE(LIB, ROUTE_NODE, "Route node");
 
 static void route_table_free(struct route_table *);
 
@@ -41,7 +41,7 @@ static int route_table_hash_cmp(const struct route_node *a,
 }
 
 DECLARE_HASH(rn_hash_node, struct route_node, nodehash, route_table_hash_cmp,
-	     prefix_hash_key)
+	     prefix_hash_key);
 /*
  * route_table_init_with_delegate
  */
@@ -230,7 +230,7 @@ struct route_node *route_node_match_ipv4(struct route_table *table,
 
 	memset(&p, 0, sizeof(struct prefix_ipv4));
 	p.family = AF_INET;
-	p.prefixlen = IPV4_MAX_PREFIXLEN;
+	p.prefixlen = IPV4_MAX_BITLEN;
 	p.prefix = *addr;
 
 	return route_node_match(table, (struct prefix *)&p);
@@ -243,7 +243,7 @@ struct route_node *route_node_match_ipv6(struct route_table *table,
 
 	memset(&p, 0, sizeof(struct prefix_ipv6));
 	p.family = AF_INET6;
-	p.prefixlen = IPV6_MAX_PREFIXLEN;
+	p.prefixlen = IPV6_MAX_BITLEN;
 	p.prefix = *addr;
 
 	return route_node_match(table, &p);

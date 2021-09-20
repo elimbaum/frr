@@ -33,7 +33,8 @@
 
 #define ZLOG_MAXLVL(a, b) MAX(a, b)
 
-DEFINE_HOOK(zlog_rotate, (), ())
+DEFINE_HOOK(zlog_rotate, (), ());
+DEFINE_HOOK(zlog_cli_show, (struct vty * vty), (vty));
 
 static const int log_default_lvl = LOG_DEBUG;
 
@@ -57,7 +58,7 @@ static struct zlog_cfg_filterfile zt_filterfile = {
 	},
 };
 
-static const char *zlog_progname;
+const char *zlog_progname;
 static const char *zlog_protoname;
 
 static const struct facility_map {
@@ -94,7 +95,14 @@ static const char * const zlog_priority[] = {
 	"notifications", "informational", "debugging", NULL,
 };
 
-static const char *facility_name(int facility)
+const char *zlog_priority_str(int priority)
+{
+	if (priority > LOG_DEBUG)
+		return "???";
+	return zlog_priority[priority];
+}
+
+const char *facility_name(int facility)
 {
 	const struct facility_map *fm;
 
@@ -104,7 +112,7 @@ static const char *facility_name(int facility)
 	return "";
 }
 
-static int facility_match(const char *str)
+int facility_match(const char *str)
 {
 	const struct facility_map *fm;
 
@@ -146,11 +154,11 @@ void log_show_syslog(struct vty *vty)
 			zlog_progname);
 }
 
-DEFUN (show_logging,
-       show_logging_cmd,
-       "show logging",
-       SHOW_STR
-       "Show current logging configuration\n")
+DEFUN_NOSH (show_logging,
+	    show_logging_cmd,
+	    "show logging",
+	    SHOW_STR
+	    "Show current logging configuration\n")
 {
 	log_show_syslog(vty);
 
@@ -194,6 +202,8 @@ DEFUN (show_logging,
 	vty_out(vty, "Record priority: %s\n",
 		(zt_file.record_priority ? "enabled" : "disabled"));
 	vty_out(vty, "Timestamp precision: %d\n", zt_file.ts_subsec);
+
+	hook_call(zlog_cli_show, vty);
 	return CMD_SUCCESS;
 }
 
@@ -532,6 +542,28 @@ DEFUN (no_config_log_timestamp_precision,
 	return CMD_SUCCESS;
 }
 
+DEFPY (config_log_ec,
+       config_log_ec_cmd,
+       "[no] log error-category",
+       NO_STR
+       "Logging control\n"
+       "Prefix log message text with [EC 9999] code\n")
+{
+	zlog_set_prefix_ec(!no);
+	return CMD_SUCCESS;
+}
+
+DEFPY (config_log_xid,
+       config_log_xid_cmd,
+       "[no] log unique-id",
+       NO_STR
+       "Logging control\n"
+       "Prefix log message text with [XXXXX-XXXXX] identifier\n")
+{
+	zlog_set_prefix_xid(!no);
+	return CMD_SUCCESS;
+}
+
 DEFPY (config_log_filterfile,
        config_log_filterfile_cmd,
        "log filtered-file FILENAME [<emergencies|alerts|critical|errors|warnings|notifications|informational|debugging>$levelarg]",
@@ -566,8 +598,9 @@ DEFUN (no_config_log_filterfile,
 
 DEFPY (log_filter,
        log_filter_cmd,
-       "[no] log-filter WORD$filter",
+       "[no] log filter-text WORD$filter",
        NO_STR
+       "Logging control\n"
        FILTER_LOG_STR
        "String to filter by\n")
 {
@@ -594,8 +627,9 @@ DEFPY (log_filter,
 /* Clear all log filters */
 DEFPY (log_filter_clear,
        log_filter_clear_cmd,
-       "clear log-filter",
+       "clear log filter-text",
        CLEAR_STR
+       "Logging control\n"
        FILTER_LOG_STR)
 {
 	zlog_filter_clear();
@@ -605,8 +639,9 @@ DEFPY (log_filter_clear,
 /* Show log filter */
 DEFPY (show_log_filter,
        show_log_filter_cmd,
-       "show log-filter",
+       "show logging filter-text",
        SHOW_STR
+       "Show current logging configuration\n"
        FILTER_LOG_STR)
 {
 	char log_filters[ZLOG_FILTERS_MAX * (ZLOG_FILTER_LENGTH_MAX + 3)] = "";
@@ -622,6 +657,18 @@ DEFPY (show_log_filter,
 	if (len != 0)
 		vty_out(vty, "%s", log_filters);
 
+	return CMD_SUCCESS;
+}
+
+/* Enable/disable 'immediate' mode, with no output buffering */
+DEFPY (log_immediate_mode,
+       log_immediate_mode_cmd,
+       "[no] log immediate-mode",
+       NO_STR
+       "Logging control"
+       "Output immediately, without buffering")
+{
+	zlog_set_immediate(!no);
 	return CMD_SUCCESS;
 }
 
@@ -699,6 +746,11 @@ void log_config_write(struct vty *vty)
 	if (zt_file.ts_subsec > 0)
 		vty_out(vty, "log timestamp precision %d\n",
 			zt_file.ts_subsec);
+
+	if (!zlog_get_prefix_ec())
+		vty_out(vty, "no log error-category\n");
+	if (!zlog_get_prefix_xid())
+		vty_out(vty, "no log unique-id\n");
 }
 
 static int log_vty_init(const char *progname, const char *protoname,
@@ -706,6 +758,9 @@ static int log_vty_init(const char *progname, const char *protoname,
 {
 	zlog_progname = progname;
 	zlog_protoname = protoname;
+
+	zlog_set_prefix_ec(true);
+	zlog_set_prefix_xid(true);
 
 	zlog_filterfile_init(&zt_filterfile);
 
@@ -737,10 +792,13 @@ void log_cmd_init(void)
 	install_element(CONFIG_NODE, &no_config_log_record_priority_cmd);
 	install_element(CONFIG_NODE, &config_log_timestamp_precision_cmd);
 	install_element(CONFIG_NODE, &no_config_log_timestamp_precision_cmd);
+	install_element(CONFIG_NODE, &config_log_ec_cmd);
+	install_element(CONFIG_NODE, &config_log_xid_cmd);
 
 	install_element(VIEW_NODE, &show_log_filter_cmd);
 	install_element(CONFIG_NODE, &log_filter_cmd);
 	install_element(CONFIG_NODE, &log_filter_clear_cmd);
 	install_element(CONFIG_NODE, &config_log_filterfile_cmd);
 	install_element(CONFIG_NODE, &no_config_log_filterfile_cmd);
+	install_element(CONFIG_NODE, &log_immediate_mode_cmd);
 }

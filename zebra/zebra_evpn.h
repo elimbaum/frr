@@ -98,6 +98,9 @@ struct zebra_evpn_t_ {
 	/* Corresponding VxLAN interface. */
 	struct interface *vxlan_if;
 
+	/* Corresponding SVI interface. */
+	struct interface *svi_if;
+
 	/* List of remote VTEPs */
 	zebra_vtep_t *vteps;
 
@@ -201,12 +204,12 @@ int zebra_evpn_vtep_uninstall(zebra_evpn_t *zevpn, struct in_addr *vtep_ip);
 void zebra_evpn_handle_flooding_remote_vteps(struct hash_bucket *bucket,
 					     void *zvrf);
 void zebra_evpn_cleanup_all(struct hash_bucket *bucket, void *arg);
-void process_remote_macip_add(vni_t vni, struct ethaddr *macaddr,
-			      uint16_t ipa_len, struct ipaddr *ipaddr,
+void zebra_evpn_rem_macip_add(vni_t vni, const struct ethaddr *macaddr,
+			      uint16_t ipa_len, const struct ipaddr *ipaddr,
 			      uint8_t flags, uint32_t seq,
-			      struct in_addr vtep_ip, esi_t *esi);
-void process_remote_macip_del(vni_t vni, struct ethaddr *macaddr,
-			      uint16_t ipa_len, struct ipaddr *ipaddr,
+			      struct in_addr vtep_ip, const esi_t *esi);
+void zebra_evpn_rem_macip_del(vni_t vni, const struct ethaddr *macaddr,
+			      uint16_t ipa_len, const struct ipaddr *ipaddr,
 			      struct in_addr vtep_ip);
 void zebra_evpn_cfg_cleanup(struct hash_bucket *bucket, void *ctxt);
 

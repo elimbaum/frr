@@ -116,6 +116,7 @@ struct zebra_lsp_t_ {
 #define LSP_FLAG_SCHEDULED        (1 << 0)
 #define LSP_FLAG_INSTALLED        (1 << 1)
 #define LSP_FLAG_CHANGED          (1 << 2)
+#define LSP_FLAG_FPM              (1 << 3)
 
 	/* Address-family of NHLFE - saved here for delete. All NHLFEs */
 	/* have to be of the same AF */
@@ -415,6 +416,12 @@ void zebra_mpls_init(void);
  */
 void zebra_mpls_vty_init(void);
 
+/*
+ * When cleaning up a client connection ensure that there are no
+ * vrf labels that need cleaning up too
+ */
+void zebra_mpls_client_cleanup_vrf_label(uint8_t proto);
+
 /* Inline functions. */
 
 /*
@@ -575,6 +582,7 @@ static inline int mpls_should_lsps_be_processed(struct route_node *rn)
 
 /* Global variables. */
 extern int mpls_enabled;
+extern bool mpls_pw_reach_strict; /* Strict pseudowire reachability checking */
 
 #ifdef __cplusplus
 }

@@ -22,7 +22,9 @@
 #ifndef __SHARP_GLOBAL_H__
 #define __SHARP_GLOBAL_H__
 
-DECLARE_MGROUP(SHARPD)
+#include "lib/srv6.h"
+
+DECLARE_MGROUP(SHARPD);
 
 struct sharp_routes {
 	/* The original prefix for route installation */
@@ -40,11 +42,24 @@ struct sharp_routes {
 	uint32_t removed_routes;
 	int32_t repeat;
 
+	/* ZAPI_ROUTE's flag */
+	uint32_t flags;
+
 	uint8_t inst;
 	vrf_id_t vrf_id;
 
 	struct timeval t_start;
 	struct timeval t_end;
+
+	char opaque[ZAPI_MESSAGE_OPAQUE_LENGTH];
+};
+
+struct sharp_srv6_locator {
+	/* name of locator */
+	char name[SRV6_LOCNAME_SIZE];
+
+	/* list of struct prefix_ipv6 */
+	struct list *chunks;
 };
 
 struct sharp_global {
@@ -53,6 +68,12 @@ struct sharp_global {
 
 	/* The list of nexthops that we are watching and data about them */
 	struct list *nhs;
+
+	/* Traffic Engineering Database */
+	struct ls_ted *ted;
+
+	/* list of sharp_srv6_locator */
+	struct list *srv6_locators;
 };
 
 extern struct sharp_global sg;

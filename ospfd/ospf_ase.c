@@ -136,7 +136,7 @@ static void ospf_ase_complete_direct_routes(struct ospf_route *ro,
 	struct ospf_path *op;
 
 	for (ALL_LIST_ELEMENTS_RO(ro->paths, node, op))
-		if (op->nexthop.s_addr == 0)
+		if (op->nexthop.s_addr == INADDR_ANY)
 			op->nexthop.s_addr = nexthop.s_addr;
 }
 
@@ -155,84 +155,6 @@ static int ospf_ase_forward_address_check(struct ospf *ospf,
 
 	return 1;
 }
-
-#if 0
-/* Calculate ASBR route. */
-static struct ospf_route *
-ospf_ase_calculate_asbr_route (struct ospf *ospf,
-			       struct route_table *rt_network,
-			       struct route_table *rt_router,
-			       struct as_external_lsa *al)
-{
-  struct prefix_ipv4 asbr;
-  struct ospf_route *asbr_route;
-  struct route_node *rn;
-
-  /* Find ASBR route from Router routing table. */
-  asbr.family = AF_INET;
-  asbr.prefix = al->header.adv_router;
-  asbr.prefixlen = IPV4_MAX_BITLEN;
-  apply_mask_ipv4 (&asbr);
-
-  asbr_route = ospf_find_asbr_route (ospf, rt_router, &asbr);
-
-  if (asbr_route == NULL)
-    {
-      if (IS_DEBUG_OSPF (lsa, LSA))
-	zlog_debug ("ospf_ase_calculate(): Route to ASBR %pI4 not found",
-		    &asbr.prefix);
-      return NULL;
-    }
-
-  if (!(asbr_route->u.std.flags & ROUTER_LSA_EXTERNAL))
-    {
-      if (IS_DEBUG_OSPF (lsa, LSA))
-	zlog_debug ("ospf_ase_calculate(): Originating router is not an ASBR");
-      return NULL;
-    }
-
-  if (al->e[0].fwd_addr.s_addr != 0)
-    {
-      if (IS_DEBUG_OSPF (lsa, LSA))
-	zlog_debug ("ospf_ase_calculate(): Forwarding address is not 0.0.0.0.");
-
-      if (! ospf_ase_forward_address_check (ospf, al->e[0].fwd_addr))
-	{
-	  if (IS_DEBUG_OSPF (lsa, LSA))
-	    zlog_debug ("ospf_ase_calculate(): Forwarding address is one of our addresses, Ignore.");
-	  return NULL;
-        }
-
-      if (IS_DEBUG_OSPF (lsa, LSA))
-	zlog_debug ("ospf_ase_calculate(): Looking up in the Network Routing Table.");
-
-      /* Looking up the path to the fwd_addr from Network route. */
-      asbr.family = AF_INET;
-      asbr.prefix = al->e[0].fwd_addr;
-      asbr.prefixlen = IPV4_MAX_BITLEN;
-
-      rn = route_node_match (rt_network, (struct prefix *) &asbr);
-
-      if (rn == NULL)
-	{
-	  if (IS_DEBUG_OSPF (lsa, LSA))
-	    zlog_debug ("ospf_ase_calculate(): Couldn't find a route to the forwarding address.");
-	  return NULL;
-	}
-
-      route_unlock_node (rn);
-
-      if ((asbr_route = rn->info) == NULL)
-	{
-	  if (IS_DEBUG_OSPF (lsa, LSA))
-	    zlog_debug ("ospf_ase_calculate(): Somehow OSPF route to ASBR is lost");
-	  return NULL;
-	}
-    }
-
-  return asbr_route;
-}
-#endif
 
 static struct ospf_route *
 ospf_ase_calculate_new_route(struct ospf_lsa *lsa,
@@ -687,6 +609,16 @@ static int ospf_ase_calculate_timer(struct thread *t)
 					+ (stop_time.tv_usec
 					   - start_time.tv_usec));
 	}
+
+	/*
+	 * Uninstall remnant routes that were installed before the restart, but
+	 * that are no longer valid.
+	 */
+	if (ospf->gr_info.finishing_restart) {
+		ospf_zebra_gr_disable(ospf);
+		ospf->gr_info.finishing_restart = false;
+	}
+
 	return 0;
 }
 
@@ -748,8 +680,13 @@ void ospf_ase_unregister_external_lsa(struct ospf_lsa *lsa, struct ospf *top)
 
 	if (rn) {
 		lst = rn->info;
-		listnode_delete(lst, lsa);
-		ospf_lsa_unlock(&lsa); /* external_lsas list */
+		struct listnode *node = listnode_lookup(lst, lsa);
+		/* Unlock lsa only if node is present in the list */
+		if (node) {
+			listnode_delete(lst, lsa);
+			ospf_lsa_unlock(&lsa); /* external_lsas list */
+		}
+
 		route_unlock_node(rn);
 	}
 }
