@@ -140,8 +140,17 @@ static ssize_t netlink_rule_msg_encode(
 	if (filter_bm & PBR_FILTER_IP_PROTOCOL)
 		nl_attr_put8(&req->n, buflen, FRA_IP_PROTO, ip_protocol);
 
+	/* match on source/dest ports
+		netlink expects a port *range*; since we only support individual ports,
+		create a singletone range.
+	*/
+	if (filter_bm & PBR_FILTER_SRC_PORT) {
+		struct fib_rule_port_range ports = { src_port, src_port } ;
+		nl_attr_put(&req->n, buflen, FRA_SPORT_RANGE, &ports, sizeof(ports));
+	}
+
 	if (filter_bm & PBR_FILTER_DST_PORT) {
-		struct fib_rule_port_range ports = { dst_port , dst_port } ;
+		struct fib_rule_port_range ports = { dst_port, dst_port } ;
 		nl_attr_put(&req->n, buflen, FRA_DPORT_RANGE, &ports, sizeof(ports));
 	}
 
