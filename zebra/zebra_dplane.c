@@ -255,10 +255,8 @@ struct dplane_ctx_rule {
 
 	struct prefix filter_src_ip;
 	struct prefix filter_dst_ip;
-	uint32_t filter_udp_src_port;
-	uint32_t filter_udp_dst_port;
-	uint32_t filter_tcp_src_port;
-	uint32_t filter_tcp_dst_port;
+	uint32_t filter_src_port;
+	uint32_t filter_dst_port;
 	uint32_t filter_ip_proto;
 	uint8_t  filter_dsfield;
 	uint32_t filter_fwmark;
@@ -1966,6 +1964,38 @@ uint32_t dplane_ctx_rule_get_old_fwmark(const struct zebra_dplane_ctx *ctx)
 	return ctx->u.rule.old.filter_fwmark;
 }
 
+uint16_t
+dplane_ctx_rule_get_src_port(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.new.filter_src_port;
+}
+
+uint16_t
+dplane_ctx_rule_get_old_src_port(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.old.filter_src_port;
+}
+
+uint16_t
+dplane_ctx_rule_get_dst_port(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.new.filter_dst_port;
+}
+
+uint16_t
+dplane_ctx_rule_get_old_dst_port(const struct zebra_dplane_ctx *ctx)
+{
+	DPLANE_CTX_VALID(ctx);
+
+	return ctx->u.rule.old.filter_src_port;
+}
+
 uint8_t dplane_ctx_rule_get_ipproto(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
@@ -2688,10 +2718,8 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->filter_bm           = rule->rule.filter.filter_bm;
 	prefix_copy(&(dplane_rule->filter_src_ip), &rule->rule.filter.src_ip);
 	prefix_copy(&(dplane_rule->filter_dst_ip), &rule->rule.filter.dst_ip);
-	dplane_rule->filter_udp_src_port = rule->rule.filter.src_port;
-	dplane_rule->filter_udp_dst_port = rule->rule.filter.dst_port;
-	dplane_rule->filter_tcp_src_port = rule->rule.filter.src_port;
-	dplane_rule->filter_tcp_dst_port = rule->rule.filter.dst_port;
+	dplane_rule->filter_src_port = rule->rule.filter.src_port;
+	dplane_rule->filter_dst_port = rule->rule.filter.dst_port;
 	dplane_rule->filter_ip_proto     = rule->rule.filter.ip_proto;
 	dplane_rule->filter_dsfield      = rule->rule.filter.dsfield;
 	dplane_rule->filter_fwmark       = rule->rule.filter.fwmark;

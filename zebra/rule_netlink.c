@@ -62,7 +62,8 @@ static ssize_t netlink_rule_msg_encode(
 	int cmd, const struct zebra_dplane_ctx *ctx, uint32_t filter_bm,
 	uint32_t priority, uint32_t table, const struct prefix *src_ip,
 	const struct prefix *dst_ip, uint32_t fwmark, uint8_t dsfield,
-	uint8_t ip_protocol, void *buf, size_t buflen)
+	uint8_t ip_protocol, uint16_t src_port, uint16_t dst_port,
+	void *buf, size_t buflen)
 {
 	uint8_t protocol = RTPROT_ZEBRA;
 	int family;
@@ -139,6 +140,11 @@ static ssize_t netlink_rule_msg_encode(
 	if (filter_bm & PBR_FILTER_IP_PROTOCOL)
 		nl_attr_put8(&req->n, buflen, FRA_IP_PROTO, ip_protocol);
 
+	if (filter_bm & PBR_FILTER_DST_PORT) {
+		struct fib_rule_port_range ports = { dst_port , dst_port } ;
+		nl_attr_put(&req->n, buflen, FRA_DPORT_RANGE, &ports, sizeof(ports));
+	}
+
 	/* Route table to use to forward, if filter criteria matches. */
 	if (table < 256)
 		req->frh.table = table;
@@ -173,7 +179,10 @@ static ssize_t netlink_rule_msg_encoder(struct zebra_dplane_ctx *ctx, void *buf,
 		dplane_ctx_rule_get_dst_ip(ctx),
 		dplane_ctx_rule_get_fwmark(ctx),
 		dplane_ctx_rule_get_dsfield(ctx),
-		dplane_ctx_rule_get_ipproto(ctx), buf, buflen);
+		dplane_ctx_rule_get_ipproto(ctx),
+		dplane_ctx_rule_get_src_port(ctx),
+		dplane_ctx_rule_get_dst_port(ctx),
+		buf, buflen);
 }
 
 static ssize_t netlink_oldrule_msg_encoder(struct zebra_dplane_ctx *ctx,
@@ -187,7 +196,10 @@ static ssize_t netlink_oldrule_msg_encoder(struct zebra_dplane_ctx *ctx,
 		dplane_ctx_rule_get_old_dst_ip(ctx),
 		dplane_ctx_rule_get_old_fwmark(ctx),
 		dplane_ctx_rule_get_old_dsfield(ctx),
-		dplane_ctx_rule_get_old_ipproto(ctx), buf, buflen);
+		dplane_ctx_rule_get_old_ipproto(ctx),
+		dplane_ctx_rule_get_old_src_port(ctx),
+		dplane_ctx_rule_get_old_dst_port(ctx),
+		buf, buflen);
 }
 
 /* Public functions */
