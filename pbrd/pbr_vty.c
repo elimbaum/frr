@@ -1119,10 +1119,10 @@ static void vty_show_pbrms(struct vty *vty,
 		}
 	}
 
-	if (pbrms->src_prt != PBR_UNDEFINED_VALUE)
+	if (pbrms->src_prt)
 		vty_out(vty, "        Match Src port %u\n",
-			pbrms->match_src_prt);
-	if (pbrms->dst_prt != PBR_UNDEFINED_VALUE)
+			pbrms->src_prt);
+	if (pbrms->dst_prt)
 		vty_out(vty, "        Match Dst port %u\n",
 			pbrms->dst_prt);
 
@@ -1598,16 +1598,6 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 	if (pbrms->src)
 		vty_out(vty, " match src-ip %pFX\n", pbrms->src);
 
-	if (pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match tcp-dst-port %d\n", pbrms->match_tcp_dst_port);
-	if (pbrms->match_tcp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match tcp-src-port %d\n", pbrms->match_tcp_src_port);
-
-	if (pbrms->match_udp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match udp-dst-port %d\n", pbrms->match_udp_dst_port);
-	if (pbrms->match_udp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match udp-src-port %d\n", pbrms->match_udp_src_port);
-
 	if((pbrms->match_vlan_id != 0) &&
 	   (pbrms->match_vlan_flags == PBR_MAP_VLAN_NO_WILD))
 		vty_out(vty," match vlan %u\n", pbrms->match_vlan_id);
@@ -1755,14 +1745,6 @@ void pbr_vty_init(void)
 	install_element(PBRMAP_NODE, &pbr_map_action_queue_id_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_match_pcp_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_action_pcp_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_udp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_udp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_udp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_udp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_tcp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_tcp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_tcp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_tcp_dst_port_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_match_mark_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_nexthop_group_cmd);
 	install_element(PBRMAP_NODE, &no_pbr_map_nexthop_group_cmd);
