@@ -1993,7 +1993,7 @@ dplane_ctx_rule_get_old_dst_port(const struct zebra_dplane_ctx *ctx)
 {
 	DPLANE_CTX_VALID(ctx);
 
-	return ctx->u.rule.old.filter_src_port;
+	return ctx->u.rule.old.filter_dst_port;
 }
 
 uint8_t dplane_ctx_rule_get_ipproto(const struct zebra_dplane_ctx *ctx)
