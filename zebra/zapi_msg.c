@@ -3113,7 +3113,6 @@ stream_failure:
 	return;
 }
 
-// ELITODO make sure this aligns
 static inline void zread_rule(ZAPI_HANDLER_ARGS)
 {
 	struct zebra_pbr_rule zpr;
