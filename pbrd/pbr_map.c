@@ -162,28 +162,6 @@ void pbr_set_action_clause_for_pcp(struct pbr_map_sequence *pbrms,
 	}
 }
 
-void pbr_set_match_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
-					   uint32_t udp_port)
-{
-	if (pbrms) {
-		pbrms->match_udp_src_port  = (udp_port & 0xFFFF);
-		zlog_info("setting pbrms->match_udp_src_port = %u ", pbrms->match_udp_src_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,
-					   uint32_t udp_port)
-{
-	if (pbrms) {
-		pbrms->match_udp_dst_port  = (udp_port & 0xFFFF);
-		zlog_info("setting pbrms->match_udp_dst_port = %u ", pbrms->match_udp_dst_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
 
 void pbr_set_action_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
 					    uint32_t udp_port)
@@ -202,28 +180,6 @@ void pbr_set_action_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,
 	if (pbrms) {
 		pbrms->action_udp_dst_port  = (udp_port & 0xFFFF);
 		zlog_info("setting pbrms->action_udp_dst_port = %u ", pbrms->action_udp_dst_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_tcp_src_port(struct pbr_map_sequence *pbrms,
-					   uint32_t tcp_port)
-{
-	if (pbrms) {
-		pbrms->match_tcp_src_port  = (tcp_port & 0xFFFF);
-		zlog_info("setting pbrms->match_tcp_src_port = %u ", pbrms->match_tcp_src_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_tcp_dst_port(struct pbr_map_sequence *pbrms,
-					   uint32_t tcp_port)
-{
-	if (pbrms) {
-		pbrms->match_tcp_dst_port  = (tcp_port & 0xFFFF);
-		zlog_info("setting pbrms->match_tcp_dst_port = %u ", pbrms->match_tcp_dst_port);
 
 		pbr_map_check(pbrms, true);
 	}
@@ -822,12 +778,11 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->match_pcp  = 0;
 		pbrms->action_pcp = 0;
 
-		pbrms->match_udp_src_port =  PBR_UNDEFINED_VALUE;
-		pbrms->match_udp_dst_port =  PBR_UNDEFINED_VALUE;
+		pbrms->src_prt = 0;
+		pbrms->dst_prt = 0;
+
 		pbrms->action_udp_src_port = PBR_UNDEFINED_VALUE;
 		pbrms->action_udp_dst_port = PBR_UNDEFINED_VALUE;
-		pbrms->match_tcp_src_port  = PBR_UNDEFINED_VALUE;
-		pbrms->match_tcp_dst_port  = PBR_UNDEFINED_VALUE;
 		pbrms->action_tcp_src_port = PBR_UNDEFINED_VALUE;
 		pbrms->action_tcp_dst_port = PBR_UNDEFINED_VALUE;
 
@@ -905,15 +860,13 @@ static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 	    !pbrms->match_pcp             &&
 	    !pbrms->action_pcp            &&
 	    !pbrms->mark                  &&
-	    pbrms->action_queue_id == 255 &&
+	    !pbrms->src_prt				  &&
+		!pbrms->dst_prt				  &&
+		pbrms->action_queue_id == 255 &&
 	    pbrms->match_ip_proto      == PBR_UNDEFINED_VALUE &&
-	    pbrms->match_udp_src_port  == PBR_UNDEFINED_VALUE &&
 	    pbrms->action_udp_src_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->match_udp_dst_port  == PBR_UNDEFINED_VALUE &&
 	    pbrms->action_udp_dst_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->match_tcp_src_port  == PBR_UNDEFINED_VALUE &&
 	    pbrms->action_tcp_src_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->match_tcp_dst_port  == PBR_UNDEFINED_VALUE &&
 	    pbrms->action_tcp_dst_port == PBR_UNDEFINED_VALUE &&
 	    !pbrms->match_vlan_id     &&
 	    !pbrms->set_vlan_id       &&

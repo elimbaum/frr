@@ -155,7 +155,7 @@ void zebra_pbr_rules_free(void *arg)
 	(void)dplane_pbr_rule_delete(rule);
 	XFREE(MTYPE_TMP, rule);
 }
-// ELITODO: need to update hash function with new fields.
+
 uint32_t zebra_pbr_rules_hash_key(const void *arg)
 {
 	const struct zebra_pbr_rule *rule;

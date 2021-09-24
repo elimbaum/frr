@@ -40,194 +40,6 @@
 #include "pbrd/pbr_vty_clippy.c"
 #endif
 
-DEFPY(pbr_map_match_udp_src_port, pbr_map_match_udp_src_port_cmd,
-      "[no] match udp-src-port <(0-65535)$udp_src_port>",
-      NO_STR
-      "match the rest of the command\n"
-      "match based on UDP source port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = udp_src_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_match_clause_for_udp_src_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->match_udp_src_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->match_udp_src_port)
-					pbr_set_match_clause_for_udp_src_port(pbrms,
-									      PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFPY(pbr_map_match_udp_dst_port, pbr_map_match_udp_dst_port_cmd,
-      "[no] match udp-dst-port <(0-65535)$udp_dst_port>",
-      NO_STR
-      "match the rest of the command\n"
-      "match based on UDP destination port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) udp_dst_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_match_clause_for_udp_dst_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->match_udp_dst_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->match_udp_dst_port)
-					pbr_set_match_clause_for_udp_dst_port(pbrms,
-									      PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-DEFPY(pbr_map_action_udp_src_port, pbr_map_action_udp_src_port_cmd,
-      "[no] set udp-src-port <(0-65535)$udp_src_port>",
-      NO_STR
-      "set the rest of the command\n"
-      "set based on UDP source port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) udp_src_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_action_clause_for_udp_src_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->action_udp_src_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->action_udp_src_port)
-					pbr_set_action_clause_for_udp_src_port(pbrms,
-									       PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFPY(pbr_map_action_udp_dst_port, pbr_map_action_udp_dst_port_cmd,
-      "[no] set udp-dst-port <(0-65535)$udp_dst_port>",
-      NO_STR
-      "set the rest of the command\n"
-      "set based on UDP destination port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) udp_dst_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_action_clause_for_udp_dst_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->action_udp_dst_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->action_udp_dst_port)
-					pbr_set_action_clause_for_udp_dst_port(pbrms,
-									       PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFPY(pbr_map_match_tcp_src_port, pbr_map_match_tcp_src_port_cmd,
-      "[no] match tcp-src-port <(0-65535)$tcp_src_port>",
-      NO_STR
-      "match the rest of the command\n"
-      "match based on TCP source port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) tcp_src_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_match_clause_for_tcp_src_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->match_tcp_src_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->match_tcp_src_port)
-					pbr_set_match_clause_for_tcp_src_port(pbrms,
-									      PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFPY(pbr_map_match_tcp_dst_port, pbr_map_match_tcp_dst_port_cmd,
-      "[no] match tcp-dst-port <(0-65535)$tcp_dst_port>",
-      NO_STR
-      "match the rest of the command\n"
-      "match based on TCP destination port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) tcp_dst_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_match_clause_for_tcp_dst_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->match_tcp_dst_port)
-					pbr_set_match_clause_for_tcp_dst_port(pbrms,
-									      PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-DEFPY(pbr_map_action_tcp_src_port, pbr_map_action_tcp_src_port_cmd,
-      "[no] set tcp-src-port <(0-65535)$tcp_src_port>",
-      NO_STR
-      "set the rest of the command\n"
-      "set based on TCP source port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) tcp_src_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_action_clause_for_tcp_src_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->action_tcp_src_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->action_tcp_src_port)
-					pbr_set_action_clause_for_tcp_src_port(pbrms,PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
-DEFPY(pbr_map_action_tcp_dst_port, pbr_map_action_tcp_dst_port_cmd,
-      "[no] set tcp-dst-port <(0-65535)$tcp_dst_port>",
-      NO_STR
-      "set the rest of the command\n"
-      "set based on TCP destination port\n"
-      "a valid value in range 0..65535 \n")
-{
-	uint32_t raw_port = (int32_t) tcp_dst_port;
-	struct pbr_map_sequence *pbrms = VTY_GET_CONTEXT(pbr_map_sequence);
-
-        if(pbrms){
-		if(!no){
-			pbr_set_action_clause_for_tcp_dst_port(pbrms,
-							      raw_port);
-		}else {
-			if(pbrms->action_tcp_dst_port != PBR_UNDEFINED_VALUE)
-				if(raw_port == pbrms->action_tcp_dst_port)
-					pbr_set_action_clause_for_tcp_dst_port(pbrms,PBR_UNDEFINED_VALUE);
-		}
-	}
-	return CMD_SUCCESS;
-}
-
 DEFPY(pbr_map_match_protocol_id, pbr_map_match_protocol_id_cmd,
       "[no] match protocol [<(0-255)$ip_proto>|NAME$proto_name]",
       NO_STR
@@ -1307,19 +1119,13 @@ static void vty_show_pbrms(struct vty *vty,
 		}
 	}
 
-	if (pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, "        Match TCP dst port %u\n",
-			pbrms->match_tcp_dst_port);
-	if (pbrms->match_tcp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, "        Match TCP src port %u\n",
-			pbrms->match_tcp_src_port);
+	if (pbrms->src_prt)
+		vty_out(vty, "        Match Src port %u\n",
+			pbrms->src_prt);
+	if (pbrms->dst_prt)
+		vty_out(vty, "        Match Dst port %u\n",
+			pbrms->dst_prt);
 
-	if (pbrms->match_udp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, "        Match UDP dst port %u\n",
-			pbrms->match_udp_dst_port);
-	if (pbrms->match_udp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, "        Match UDP src port %u\n",
-			pbrms->match_udp_src_port);
 	if(pbrms->match_vlan_id != 0)
 		vty_out(vty, "        Match VLAN ID %u\n", pbrms->match_vlan_id);
 	if(pbrms->match_vlan_flags == PBR_MAP_VLAN_TAGGED)
@@ -1792,16 +1598,6 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 	if (pbrms->src)
 		vty_out(vty, " match src-ip %pFX\n", pbrms->src);
 
-	if (pbrms->match_tcp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match tcp-dst-port %d\n", pbrms->match_tcp_dst_port);
-	if (pbrms->match_tcp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match tcp-src-port %d\n", pbrms->match_tcp_src_port);
-
-	if (pbrms->match_udp_dst_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match udp-dst-port %d\n", pbrms->match_udp_dst_port);
-	if (pbrms->match_udp_src_port != PBR_UNDEFINED_VALUE)
-		vty_out(vty, " match udp-src-port %d\n", pbrms->match_udp_src_port);
-
 	if((pbrms->match_vlan_id != 0) &&
 	   (pbrms->match_vlan_flags == PBR_MAP_VLAN_NO_WILD))
 		vty_out(vty," match vlan %u\n", pbrms->match_vlan_id);
@@ -1949,14 +1745,6 @@ void pbr_vty_init(void)
 	install_element(PBRMAP_NODE, &pbr_map_action_queue_id_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_match_pcp_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_action_pcp_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_udp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_udp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_udp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_udp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_tcp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_match_tcp_dst_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_tcp_src_port_cmd);
-	install_element(PBRMAP_NODE, &pbr_map_action_tcp_dst_port_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_match_mark_cmd);
 	install_element(PBRMAP_NODE, &pbr_map_nexthop_group_cmd);
 	install_element(PBRMAP_NODE, &no_pbr_map_nexthop_group_cmd);

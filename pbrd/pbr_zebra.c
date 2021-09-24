@@ -517,7 +517,6 @@ pbr_encode_pbr_map_sequence_vrf(struct stream *s,
 	stream_putl(s, pbr_vrf->vrf->data.l.table_id);
 }
 
-// ELITODO: make sure this aligns
 static void pbr_encode_pbr_map_sequence(struct stream *s,
 					struct pbr_map_sequence *pbrms,
 					struct interface *ifp)

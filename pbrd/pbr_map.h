@@ -115,14 +115,12 @@ struct pbr_map_sequence {
 #define PBR_UNDEFINED_QUEUE_ID 0xff
 
 	uint32_t match_ip_proto;
-	uint32_t match_udp_src_port;
-	uint32_t match_udp_dst_port;
+	
 	uint32_t action_udp_src_port;
 	uint32_t action_udp_dst_port;
-	uint32_t match_tcp_src_port;
-	uint32_t match_tcp_dst_port;
 	uint32_t action_tcp_src_port;
 	uint32_t action_tcp_dst_port;
+	
 	uint8_t  action_dsfield;
 	uint8_t  match_pcp;
 	uint8_t  action_pcp;
