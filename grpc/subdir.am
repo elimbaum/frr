@@ -1,4 +1,4 @@
-if GRPC 
+if GRPC
 lib_LTLIBRARIES += grpc/libfrrgrpc_pb.la
 endif
 
@@ -9,8 +9,6 @@ if GRPC
 nodist_grpc_libfrrgrpc_pb_la_SOURCES = \
 	grpc/frr-northbound.pb.cc \
 	grpc/frr-northbound.grpc.pb.cc \
-	grpc/pbr.pb.cc \
-	grpc/pbr.grpc.pb.cc \
 	# end
 endif
 
@@ -19,13 +17,9 @@ CLEANFILES += \
 	grpc/frr-northbound.pb.h \
 	grpc/frr-northbound.grpc.pb.cc \
 	grpc/frr-northbound.grpc.pb.h \
-	grpc/pbr.pb.cc \
-	grpc/pbr.pb.h \
-	grpc/pbr.grpc.pb.cc \
-	grpc/pbr.grpc.pb.h \
 	# end
-EXTRA_DIST += grpc/frr-northbound.proto grpc/pbr.proto 
 
+EXTRA_DIST += grpc/frr-northbound.proto
 
 AM_V_PROTOC = $(am__v_PROTOC_$(V))
 am__v_PROTOC_ = $(am__v_PROTOC_$(AM_DEFAULT_VERBOSITY))

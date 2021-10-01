@@ -23,7 +23,6 @@
 #include <bitfield.h>
 
 #include "pbr_vrf.h"
-#include "lib/nexthop.h"
 
 struct pbr_map {
 	/*
@@ -101,46 +100,28 @@ struct pbr_map_sequence {
 	 */
 	struct prefix *src;
 	struct prefix *dst;
-	uint8_t  match_dsfield;
+	uint8_t  dsfield;
 	uint32_t mark;
+
 	/*
 	 * Family of the src/dst.  Needed when deleting since we clear them
 	 */
 	unsigned char family;
 
+	/*
+	 * Actions
+	 */
 	struct prefix *action_src;
 	struct prefix *action_dst;
 
 #define PBR_UNDEFINED_VALUE    0xffffffff
 #define PBR_UNDEFINED_QUEUE_ID 0xff
-
-	uint32_t match_ip_proto;
 	
-	uint32_t action_udp_src_port;
-	uint32_t action_udp_dst_port;
-	uint32_t action_tcp_src_port;
-	uint32_t action_tcp_dst_port;
+	uint32_t action_src_port;
+	uint32_t action_dst_port;
 	
 	uint8_t  action_dsfield;
-	uint8_t  match_pcp;
-	uint8_t  action_pcp;
-	uint8_t  action_queue_id;
-	uint16_t match_vlan_id;
-	uint16_t set_vlan_id;
 
-#define PBR_MAP_VLAN_NO_WILD         0
-#define PBR_MAP_VLAN_TAGGED          (1 << 0)
-#define PBR_MAP_VLAN_UNTAGGED        (1 << 1)
-#define PBR_MAP_VLAN_UNTAGGED_0      (1 << 2)
-	uint16_t match_vlan_flags;
-
-#define PBR_MAP_STRIP_INNER_ANY      (1 << 0)
-	uint16_t action_vlan_flags;
-
-	vrf_id_t             nh_vrf_id;
-	ifindex_t            nh_ifindex;
-	enum nexthop_types_t nh_type;
-	union g_addr         nh_addr;
 	/*
 	 * Use interface's vrf.
 	 */
@@ -179,6 +160,7 @@ struct pbr_map_sequence {
 	 * Are we installed
 	 */
 	uint64_t installed;
+
 	/*
 	 * A reason of 0 means we think the pbr_map_sequence is good to go
 	 * We can accumuluate multiple failure states
@@ -190,7 +172,6 @@ struct pbr_map_sequence {
 #define PBR_MAP_INVALID_BOTH_NHANDGRP    (1 << 3)
 #define PBR_MAP_INVALID_EMPTY            (1 << 4)
 #define PBR_MAP_INVALID_VRF              (1 << 5)
-#define PBR_MAP_INVALID_SET_STRIP_VLAN   (1 << 6)
 	uint64_t reason;
 
 	QOBJ_FIELDS;
@@ -258,24 +239,6 @@ extern void pbr_map_check_interface_nh_group_change(const char *nh_group,
 						    struct interface *ifp,
 						    ifindex_t oldifindex);
 
-extern void pbr_set_match_clause_for_dscp(struct pbr_map_sequence *pbrms,
-					  uint8_t dscp_value);
-extern void pbr_reset_match_clause_for_dscp(struct pbr_map_sequence *pbrms);
-extern void pbr_set_match_clause_for_ecn(struct pbr_map_sequence *pbrms,
-					 uint8_t ecn_value);
-extern void pbr_reset_match_clause_for_ecn(struct pbr_map_sequence *pbrms);
-
-void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
-				   struct nexthop *nhop);
-
-
-extern void pbr_set_match_clause_for_vlan(struct pbr_map_sequence *pbrms,
-					  uint16_t vlan_id,
-					  uint16_t vlan_flags);
-extern void pbr_set_action_clause_for_vlan(struct pbr_map_sequence *pbrms,
-					   uint16_t vlan_id);
-extern void pbr_strip_action_clause_for_vlan(struct pbr_map_sequence *pbrms,
-					     uint16_t flags);
 extern void pbr_set_action_clause_for_dscp(struct pbr_map_sequence *pbrms,
 					  uint8_t dscp_value);
 extern void pbr_reset_action_clause_for_dscp(struct pbr_map_sequence *pbrms);
@@ -284,31 +247,4 @@ extern void pbr_set_action_clause_for_ecn(struct pbr_map_sequence *pbrms,
 					  uint8_t ecn_value);
 extern void pbr_reset_action_clause_for_ecn(struct pbr_map_sequence *pbrms);
 
-extern void pbr_set_match_clause_for_ip_proto(struct pbr_map_sequence *pbrms,
-					      uint32_t ip_proto);
-extern void pbr_set_match_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
-						  uint32_t udp_port);
-extern void pbr_set_match_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,
-						  uint32_t udp_port);
-
-extern void pbr_set_action_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
-						   uint32_t udp_port);
-extern void pbr_set_action_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,
-						   uint32_t udp_port);
-extern void pbr_set_match_clause_for_tcp_src_port(struct pbr_map_sequence *pbrms,
-						  uint32_t tcp_port);
-extern void pbr_set_match_clause_for_tcp_dst_port(struct pbr_map_sequence *pbrms,
-						  uint32_t tcp_port);
-
-extern void pbr_set_action_clause_for_tcp_src_port(struct pbr_map_sequence *pbrms,
-						   uint32_t tcp_port);
-extern void pbr_set_action_clause_for_tcp_dst_port(struct pbr_map_sequence *pbrms,
-						   uint32_t tcp_port);
-
-extern void pbr_set_action_clause_for_queue_id(struct pbr_map_sequence *pbrms,
-					       uint8_t queue_id);
-extern void pbr_set_match_clause_for_pcp(struct pbr_map_sequence *pbrms,
-					 uint8_t pcp);
-extern void pbr_set_action_clause_for_pcp(struct pbr_map_sequence *pbrms,
-					  uint8_t pcp);
 #endif

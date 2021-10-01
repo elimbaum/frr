@@ -4564,5 +4564,6 @@ int kernel_upd_mac_nhg(uint32_t nhg_id, uint32_t nh_cnt,
 int kernel_del_mac_nhg(uint32_t nhg_id)
 {
 	return netlink_fdb_nhg_del(nhg_id);
+
 }
 #endif /* HAVE_NETLINK */

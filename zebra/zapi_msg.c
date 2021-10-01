@@ -3174,8 +3174,6 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 	uint32_t total, i;
 	char ifname[INTERFACE_NAMSIZ + 1] = {};
 
-	char buf[PREFIX2STR_BUFFER];
-
 	s = msg;
 	STREAM_GETL(s, total);
 
@@ -3183,7 +3181,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		memset(&zpr, 0, sizeof(zpr));
 
 		zpr.sock = client->sock;
-		zpr.vrf_id = hdr->vrf_id;
+		zpr.rule.vrf_id = hdr->vrf_id;
 
 		STREAM_GETL(s, zpr.rule.seq);
 		STREAM_GETL(s, zpr.rule.priority);
@@ -3212,10 +3210,8 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		STREAM_GETW(s, zpr.rule.filter.src_port);
 		STREAM_GETW(s, zpr.rule.filter.dst_port);
 
-		STREAM_GETL(s, zpr.rule.action.udp_src_port);
-		STREAM_GETL(s, zpr.rule.action.udp_dst_port);
-		STREAM_GETL(s, zpr.rule.action.tcp_src_port);
-		STREAM_GETL(s, zpr.rule.action.tcp_dst_port);
+		STREAM_GETL(s, zpr.rule.action.src_port);
+		STREAM_GETL(s, zpr.rule.action.dst_port);
 
 		STREAM_GETC(s, zpr.rule.filter.dsfield);
 		STREAM_GETC(s, zpr.rule.action.dsfield);
@@ -3224,78 +3220,13 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 
 		STREAM_GETL(s, zpr.rule.filter.fwmark);
 
-		STREAM_GETC(s, zpr.rule.filter.pcp);
-		STREAM_GETC(s, zpr.rule.action.pcp);
-
-		STREAM_GETC(s, zpr.rule.action.queue_id);
-		STREAM_GETW(s, zpr.rule.filter.vlan_id);
-		STREAM_GETW(s, zpr.rule.action.set_vlan_id);
-		STREAM_GETW(s, zpr.rule.filter.vlan_flags);
-		STREAM_GETW(s, zpr.rule.action.vlan_flags);
 		STREAM_GETL(s, zpr.rule.action.table);
-
-		STREAM_GETC(s, zpr.rule.action.nh_family);
-		STREAM_GETL(s, zpr.rule.action.nh_vrf_id);
-		STREAM_GETL(s, zpr.rule.action.nh_ifindex);
-		STREAM_GETL(s, zpr.rule.action.nh_type);
-		STREAM_GET(&(zpr.rule.action.nh_addr.ipv4.s_addr),s, IPV4_MAX_BYTELEN);
-		/* get bound intf information */
-		STREAM_GETL (s, zpr.rule.bound_intf_vrf_id);
-		STREAM_GETL (s, zpr.rule.bound_intf_ifindex);
 		STREAM_GET(ifname, s, INTERFACE_NAMSIZ);
-		strlcpy(zpr.rule.ifname, ifname,
-			sizeof(zpr.rule.ifname));
 
-		/*
-		zlog_debug("Zebra Daemon Received from Pbrd");
-		zlog_debug("===========================================");
-		zlog_debug("zpr.rule.seq                       = %u ", zpr.rule.seq);
-		zlog_debug("zpr.rule.priority(rule#)           = %u ", zpr.rule.priority);
-		zlog_debug("zpr.rule.unique                    = %u ", zpr.rule.unique);
-		zlog_debug("Match Clauses:");
-		zlog_debug("==============");
-		zlog_debug("zpr.rule.filter.src_ip             = %s ",
-			  prefix2str(&zpr.rule.filter.src_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.filter.dst_ip             = %s ",
-			  prefix2str(&zpr.rule.filter.dst_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.filter.ip_proto           = %u ", zpr.rule.filter.ip_proto);
-		zlog_debug("zpr.rule.filter.src_port           = %u ", zpr.rule.filter.src_port);
-		zlog_debug("zpr.rule.filter.dst_port           = %u ", zpr.rule.filter.dst_port);
-		zlog_debug("zpr.rule.filter.dsfield dscp       = %u ", (zpr.rule.filter.dsfield &0xFC)>> 2);
-		zlog_debug("zpr.rule.filter.dsfield ecn        = %u ", (zpr.rule.filter.dsfield &0x03));
-		zlog_debug("zpr.rule.filter.mark               = %u ", zpr.rule.filter.fwmark);
-		zlog_debug("zpr.rule.filter.pcp                = %u ", (zpr.rule.filter.pcp &0x07));
-		zlog_debug("zpr.rule.filter.vlan_id            = %u ", zpr.rule.filter.vlan_id);
-		zlog_debug("zpr.rule.filter.vlan_flags         = %u ", zpr.rule.filter.vlan_flags);
-		zlog_debug("Set Clauses:");
-		zlog_debug("==============");
-		zlog_debug("zpr.rule.action.src_ip             = %s ",
-			  prefix2str(&zpr.rule.action.src_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.action.dst_ip             = %s ",
-			  prefix2str(&zpr.rule.action.dst_ip, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.action.udp_src_port       = %u ", zpr.rule.action.udp_src_port);
-		zlog_debug("zpr.rule.action.udp_dst_port       = %u ", zpr.rule.action.udp_dst_port);
-		zlog_debug("zpr.rule.action.tcp_src_port       = %u ", zpr.rule.action.tcp_src_port);
-		zlog_debug("zpr.rule.action.tcp_dst_port       = %u ", zpr.rule.action.tcp_dst_port);
-		zlog_debug("zpr.rule.action.dsfield dscp       = %u ", (zpr.rule.action.dsfield &0xFC)>> 2);
-		zlog_debug("zpr.rule.action.dsfield ecn        = %u ", (zpr.rule.action.dsfield &0x03));
-		zlog_debug("zpr.rule.action.pcp                = %u ", (zpr.rule.action.pcp &0x07));
-		zlog_debug("zpr.rule.action.queue_id           = %u ", zpr.rule.action.queue_id);
-		zlog_debug("zpr.rule.action.vlan_id            = %u ", zpr.rule.action.set_vlan_id);
-		zlog_debug("zpr.rule.action.vlan_flags         = %u ", zpr.rule.action.vlan_flags);
-		zlog_debug("zpr.rule.action.table_id           = %u ", zpr.rule.action.table);
-		zlog_debug("zpr.rule.action.nh_family          = %u ", zpr.rule.action.nh_family);
-		zlog_debug("zpr.rule.action.nh_vrf_id          = %u ", zpr.rule.action.nh_vrf_id);
-		zlog_debug("zpr.rule.action.nh_ifindex         = %u ", zpr.rule.action.nh_ifindex);
-		zlog_debug("zpr.rule.action.nh_type            = %u ", zpr.rule.action.nh_type);
-		zlog_debug("zpr.rule.action.nh_ipv4_addr       = %s ",
-		  inet_ntop(AF_INET, &zpr.rule.action.nh_addr.ipv4, buf, sizeof(buf)));
-		zlog_debug("zpr.rule.bound_intf_vrf_id         = %u ", zpr.rule.bound_intf_vrf_id);
-		zlog_debug("zpr.rule.bound_intf_ifindex        = %u ", zpr.rule.bound_intf_ifindex);
-		zlog_debug("zpr.rule.ifname                    = %s ", zpr.rule.ifname);
-		zlog_debug("\n\n");
-		*/
+		strlcpy(zpr.ifname, ifname, sizeof(zpr.ifname));
+		strlcpy(zpr.rule.ifname, ifname, sizeof(zpr.rule.ifname));
 
+		
         if (!is_default_prefix(&zpr.rule.filter.src_ip))
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_IP;
 
@@ -3310,7 +3241,6 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_DST_PORT;
 		}
 
-		/* src_port and dst_port were set to 0 in pbr's original code*/
 		if (zpr.rule.filter.src_port)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_PORT;
 
@@ -3325,9 +3255,6 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 
 		if (zpr.rule.filter.fwmark)
 			zpr.rule.filter.filter_bm |= PBR_FILTER_FWMARK;
-
-		if (zpr.rule.filter.ip_proto)
-			zpr.rule.filter.filter_bm |= PBR_FILTER_IP_PROTOCOL;
 
 		if (!(zpr.rule.filter.src_ip.family == AF_INET
 		      || zpr.rule.filter.src_ip.family == AF_INET6)) {
@@ -3345,6 +3272,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 				zpr.rule.filter.dst_ip.family);
 			return;
 		}
+		
 		zpr.vrf_id = zvrf->vrf->vrf_id;
 		if (hdr->command == ZEBRA_RULE_ADD)
 			zebra_pbr_add_rule(&zpr);

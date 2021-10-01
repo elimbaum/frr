@@ -29,16 +29,14 @@
 #include "memory.h"
 #include "log.h"
 #include "vty.h"
-
 #include "pbr_nht.h"
 #include "pbr_map.h"
 #include "pbr_zebra.h"
 
+#include "pbr.h"
 #include "pbr_memory.h"
 #include "pbr_debug.h"
 #include "pbr_vrf.h"
-
-#include "pbr.h"
 
 DEFINE_MTYPE_STATIC(PBRD, PBR_MAP, "PBR Map");
 DEFINE_MTYPE_STATIC(PBRD, PBR_MAP_SEQNO, "PBR Map Sequence");
@@ -117,151 +115,6 @@ static bool pbrms_is_installed(const struct pbr_map_sequence *pbrms,
 	return false;
 }
 
-void pbr_set_action_clause_nexthop(struct pbr_map_sequence *pbrms,
-				   struct nexthop *nhop)
-{
-	if(nhop){
-		if (pbrms) {
-			pbrms->nh_vrf_id   = nhop->vrf_id;
-			pbrms->nh_ifindex  = nhop->ifindex;
-			pbrms->nh_type     = nhop->type;
-			pbrms->nh_addr.ipv4.s_addr   = nhop->gate.ipv4.s_addr;
-			pbr_map_check(pbrms, true);
-		}
-	}
-}
-
-void pbr_set_match_clause_for_ip_proto(struct pbr_map_sequence *pbrms,
-				       uint32_t ip_proto)
-{
-	if (pbrms) {
-		pbrms->match_ip_proto    = ip_proto;
-		zlog_info("setting pbrms->match_ip_proto = %u ",pbrms->match_ip_proto);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-void pbr_set_match_clause_for_pcp(struct pbr_map_sequence *pbrms,
-				  uint8_t pcp)
-{
-	if (pbrms) {
-		pbrms->match_pcp    = pcp;
-		zlog_info("setting pbrms->match_pcp = %u ", pbrms->match_pcp);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-void pbr_set_action_clause_for_pcp(struct pbr_map_sequence *pbrms,
-				   uint8_t pcp)
-{
-	if (pbrms) {
-		pbrms->action_pcp    = pcp;
-		zlog_info("setting pbrms->action_pcp = %u ", pbrms->action_pcp);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-
-void pbr_set_action_clause_for_udp_src_port(struct pbr_map_sequence *pbrms,
-					    uint32_t udp_port)
-{
-	if (pbrms) {
-		pbrms->action_udp_src_port  = (udp_port & 0xFFFF);
-		zlog_info("setting pbrms->action_udp_src_port = %u ", pbrms->action_udp_src_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_action_clause_for_udp_dst_port(struct pbr_map_sequence *pbrms,
-					   uint32_t udp_port)
-{
-	if (pbrms) {
-		pbrms->action_udp_dst_port  = (udp_port & 0xFFFF);
-		zlog_info("setting pbrms->action_udp_dst_port = %u ", pbrms->action_udp_dst_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-
-void pbr_set_action_clause_for_tcp_src_port(struct pbr_map_sequence *pbrms,
-					    uint32_t tcp_port)
-{
-	if (pbrms) {
-		pbrms->action_tcp_src_port  = (tcp_port & 0xFFFF);
-		zlog_info("setting pbrms->action_tcp_src_port = %u ", pbrms->action_tcp_src_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_action_clause_for_tcp_dst_port(struct pbr_map_sequence *pbrms,
-					    uint32_t tcp_port)
-{
-	if (pbrms) {
-		pbrms->action_tcp_dst_port  = (tcp_port & 0xFFFF);
-		zlog_info("setting pbrms->action_tcp_dst_port = %u ", pbrms->action_tcp_dst_port);
-
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_vlan(struct pbr_map_sequence *pbrms,
-				   uint16_t vlan_id,
-				   uint16_t vlan_flags)
-{
-	if (pbrms) {
-		pbrms->match_vlan_id    = vlan_id;
-		pbrms->match_vlan_flags = vlan_flags;
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_action_clause_for_vlan(struct pbr_map_sequence *pbrms,
-				    uint16_t vlan_id)
-{
-	if (pbrms) {
-		pbrms->set_vlan_id    = vlan_id;
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_strip_action_clause_for_vlan(struct pbr_map_sequence *pbrms,
-				      uint16_t flags)
-{
-	if (pbrms) {
-		pbrms->action_vlan_flags = flags;
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_dscp(struct pbr_map_sequence *pbrms,
-				   uint8_t dscp_value)
-{
-	zlog_info("in pbr_set_match_clause_for_dscp");
-	zlog_info(" dscp_value = %u", dscp_value);
-	zlog_info("pbrms->dscp = %0x", pbrms->match_dsfield);
-	if (pbrms) {
-		/* if value is same, ignore; otherwise set and process */
-		if (((pbrms->match_dsfield & PBR_DSFIELD_DSCP) >> 2) != dscp_value){
-			pbrms->match_dsfield =
-				(pbrms->match_dsfield & ~PBR_DSFIELD_DSCP) |
-				(dscp_value << 2);
-			zlog_info("pbrms->dscp = %0x", pbrms->match_dsfield);
-			pbr_map_check(pbrms, true);
-		}
-	}
-}
-void pbr_reset_match_clause_for_dscp(struct pbr_map_sequence *pbrms)
-{
-	if (pbrms) {
-		pbrms->match_dsfield &= ~PBR_DSFIELD_DSCP;
-		pbr_map_check(pbrms, true);
-	}
-}
-
 void pbr_set_action_clause_for_dscp(struct pbr_map_sequence *pbrms,
 				    uint8_t dscp_value)
 {
@@ -275,34 +128,11 @@ void pbr_set_action_clause_for_dscp(struct pbr_map_sequence *pbrms,
 		}
 	}
 }
+
 void pbr_reset_action_clause_for_dscp(struct pbr_map_sequence *pbrms)
 {
 	if (pbrms) {
 		pbrms->action_dsfield &= ~PBR_DSFIELD_DSCP;
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_match_clause_for_ecn(struct pbr_map_sequence *pbrms,
-				  uint8_t ecn_value)
-{
-	if (pbrms) {
-		/* if value is same, ignore; otherwise set and process */
-		if ((pbrms->match_dsfield & PBR_DSFIELD_ECN) != ecn_value){
-			pbrms->match_dsfield =
-				(pbrms->match_dsfield & ~PBR_DSFIELD_ECN)|
-				(ecn_value);
-			zlog_info("pbrms dscpfield %0x ecn %u",
-				  pbrms->match_dsfield,
-				  pbrms->match_dsfield&0x03);
-			pbr_map_check(pbrms, true);
-		}
-	}
-}
-void pbr_reset_match_clause_for_ecn(struct pbr_map_sequence *pbrms)
-{
-	if (pbrms) {
-		pbrms->match_dsfield &= ~PBR_DSFIELD_ECN;
 		pbr_map_check(pbrms, true);
 	}
 }
@@ -324,19 +154,11 @@ void pbr_set_action_clause_for_ecn(struct pbr_map_sequence *pbrms,
 		}
 	}
 }
+
 void pbr_reset_action_clause_for_ecn(struct pbr_map_sequence *pbrms)
 {
 	if (pbrms) {
 		pbrms->action_dsfield &= ~PBR_DSFIELD_ECN;
-		pbr_map_check(pbrms, true);
-	}
-}
-
-void pbr_set_action_clause_for_queue_id(struct pbr_map_sequence *pbrms,
-				       uint8_t queue_id)
-{
-	if (pbrms) {
-		pbrms->action_queue_id    = queue_id;
 		pbr_map_check(pbrms, true);
 	}
 }
@@ -389,11 +211,11 @@ static void pbr_map_pbrms_update_common(struct pbr_map_sequence *pbrms,
 
 			if (install && !pbr_map_interface_is_valid(pmi))
 				continue;
+			
 			pbr_send_pbr_map(pbrms, pmi, install, changed);
 		}
 	}
 }
-
 
 static void pbr_map_pbrms_install(struct pbr_map_sequence *pbrms, bool changed)
 {
@@ -674,7 +496,6 @@ static void pbr_map_add_interfaces(struct pbr_map *pbrm)
 }
 
 /* Decodes a standardized DSCP into its representative value */
-
 uint8_t pbr_map_decode_dscp_enum(const char *name)
 {
 	/* Standard Differentiated Services Field Codepoints */
@@ -768,25 +589,13 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->seqno = seqno;
 		pbrms->ruleno = pbr_nht_get_next_rule(seqno);
 		pbrms->parent = pbrm;
-		pbrms->match_vlan_id = 0;
-		pbrms->set_vlan_id   = 0;
-		pbrms->match_vlan_flags  = 0;
-		pbrms->action_vlan_flags = 0;
 
-		pbrms->match_ip_proto  = PBR_UNDEFINED_VALUE;
-
-		pbrms->match_pcp  = 0;
-		pbrms->action_pcp = 0;
-
+		pbrms->ip_proto = 0;
 		pbrms->src_prt = 0;
 		pbrms->dst_prt = 0;
 
-		pbrms->action_udp_src_port = PBR_UNDEFINED_VALUE;
-		pbrms->action_udp_dst_port = PBR_UNDEFINED_VALUE;
-		pbrms->action_tcp_src_port = PBR_UNDEFINED_VALUE;
-		pbrms->action_tcp_dst_port = PBR_UNDEFINED_VALUE;
-
-		pbrms->action_queue_id     = 255;
+		pbrms->action_src_port = PBR_UNDEFINED_VALUE;
+		pbrms->action_dst_port = PBR_UNDEFINED_VALUE;
 
 		pbrms->reason =
 			PBR_MAP_INVALID_EMPTY |
@@ -855,42 +664,15 @@ static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 	    !pbrms->dst                   &&
 	    !pbrms->action_src            &&
 	    !pbrms->action_dst            &&
-	    !pbrms->match_dsfield         &&
+	    !pbrms->dsfield         &&
 	    !pbrms->action_dsfield        &&
-	    !pbrms->match_pcp             &&
-	    !pbrms->action_pcp            &&
 	    !pbrms->mark                  &&
 	    !pbrms->src_prt				  &&
 		!pbrms->dst_prt				  &&
-		pbrms->action_queue_id == 255 &&
-	    pbrms->match_ip_proto      == PBR_UNDEFINED_VALUE &&
-	    pbrms->action_udp_src_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->action_udp_dst_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->action_tcp_src_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->action_tcp_dst_port == PBR_UNDEFINED_VALUE &&
-	    !pbrms->match_vlan_id     &&
-	    !pbrms->set_vlan_id       &&
-	    !pbrms->match_vlan_flags  &&
-	    !pbrms->action_vlan_flags &&
-	    !pbrms->vrf_unchanged     &&
-	    !pbrms->vrf_lookup        &&
-	    !pbrms->nhg               &&
-	    !pbrms->nhgrp_name)
+	    !pbrms->ip_proto			  &&
+	    pbrms->action_src_port == PBR_UNDEFINED_VALUE &&
+	    pbrms->action_dst_port == PBR_UNDEFINED_VALUE)
 		pbrms->reason |= PBR_MAP_INVALID_EMPTY;
-}
-static void
-pbr_map_sequence_check_set_and_strip_vlan(struct pbr_map_sequence *pbrms)
-{
-	/* the set vlan tag action does the following:
-	 * 1- if the frame is untagged, it tags the frame with the set vlan id
-	 * 2- if the frame is tagged, the set replaces the frame tag with the
-	 *    configured set tag.
-	 * the strip vlan any removes the inner tag .
-	 * so a set vlan X with a strip action is not valid.
-	 */
-	if((pbrms->set_vlan_id != 0) &&
-	   (pbrms->action_vlan_flags != 0))
-		pbrms->reason |= PBR_MAP_INVALID_SET_STRIP_VLAN;
 }
 
 /*
@@ -899,9 +681,8 @@ pbr_map_sequence_check_set_and_strip_vlan(struct pbr_map_sequence *pbrms)
  */
 static void pbr_map_sequence_check_valid(struct pbr_map_sequence *pbrms)
 {
-	pbr_map_sequence_check_not_empty(pbrms);
-	pbr_map_sequence_check_set_and_strip_vlan(pbrms);
 	pbr_map_sequence_check_nexthops_valid(pbrms);
+	pbr_map_sequence_check_not_empty(pbrms);
 }
 
 static bool pbr_map_check_valid_internal(struct pbr_map *pbrm)

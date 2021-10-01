@@ -95,7 +95,6 @@ extern int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 			      const struct nlsock *nl,
 			      const struct zebra_dplane_info *dp_info,
 			      int count, int startup);
-
 extern int netlink_talk_filter(struct nlmsghdr *h, ns_id_t ns, int startup);
 extern int netlink_talk(int (*filter)(struct nlmsghdr *, ns_id_t, int startup),
 			struct nlmsghdr *n, struct nlsock *nl,

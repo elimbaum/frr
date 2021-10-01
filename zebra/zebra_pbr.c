@@ -249,6 +249,7 @@ static struct zebra_pbr_rule *
 pbr_rule_lookup_unique(struct zebra_pbr_rule *zrule)
 {
 	struct pbr_rule_unique_lookup pul;
+
 	pul.unique = zrule->rule.unique;
 	strlcpy(pul.ifname, zrule->rule.ifname, INTERFACE_NAMSIZ);
 	pul.rule = NULL;
@@ -482,8 +483,8 @@ static int pbr_rule_release(struct zebra_pbr_rule *rule)
 
 	if (!lookup)
 		return -ENOENT;
-	hash_release(zrouter.rules_hash, lookup);
 
+	hash_release(zrouter.rules_hash, lookup);
 	XFREE(MTYPE_TMP, lookup);
 
 	return 0;

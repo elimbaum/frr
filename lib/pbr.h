@@ -55,7 +55,6 @@ struct pbr_filter {
 #define PBR_DSFIELD_DSCP (0xfc) /* Upper 6 bits of DS field: DSCP */
 #define PBR_DSFIELD_ECN (0x03)	/* Lower 2 bits of DS field: BCN */
 
-#define PBR_PCP         (0x07)  /* 3 bit value 0..7 */
 	/* Source and Destination IP address with masks. */
 	struct prefix src_ip;
 	struct prefix dst_ip;
@@ -63,10 +62,7 @@ struct pbr_filter {
 	/* Source and Destination layer 4 (tcp, udp, etc.) port numbers. */
 	uint16_t src_port;
 	uint16_t dst_port;
-	uint32_t proto_id;
-	uint8_t  pcp;
-	uint16_t vlan_id;
-	uint16_t vlan_flags;
+
 	/* Filter by Differentiated Services field  */
 	uint8_t dsfield; /* DSCP (6 bits) & ECN (2 bits) */
 
@@ -90,24 +86,13 @@ struct pbr_action {
 	/* Source and Destination IP address with masks. */
 	struct prefix src_ip;
 	struct prefix dst_ip;
-	/* Source and Destination higher-layer (TCP/UDP) port numbers. */
-	uint32_t udp_src_port;
-	uint32_t udp_dst_port;
-	uint32_t tcp_src_port;
-	uint32_t tcp_dst_port;
+	/* Source and Destination layer 4 (tcp, udp, etc.) port numbers. */
+	uint32_t src_port;
+	uint32_t dst_port;
 
-	/* Filter by Differentiated Services field  */
+	/* Differentiated Services field  */
 	uint8_t  dsfield; /* DSCP (6 bits) & ECN (2 bits) */
-	uint8_t  pcp;
-	uint8_t  queue_id;
-	uint16_t set_vlan_id;
-	uint16_t vlan_flags;
-	/* nexthop actions */
-	uint8_t              nh_family;
-	vrf_id_t             nh_vrf_id;
-	ifindex_t            nh_ifindex;
-	enum nexthop_types_t nh_type;
-	union g_addr         nh_addr;
+
 	uint32_t table;
 };
 
@@ -126,8 +111,7 @@ struct pbr_rule {
 	uint32_t unique;
 	struct pbr_filter filter;
 	struct pbr_action action;
-	vrf_id_t bound_intf_vrf_id;
-	ifindex_t bound_intf_ifindex;
+
 	char ifname[INTERFACE_NAMSIZ + 1];
 };
 

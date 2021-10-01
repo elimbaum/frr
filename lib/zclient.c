@@ -1601,6 +1601,7 @@ static void zapi_encode_prefix(struct stream *s, struct prefix *p,
 	stream_putc(s, p->prefixlen);
 	stream_put(s, &p->u.prefix, prefix_blen(p));
 }
+
 int zapi_pbr_rule_encode(uint8_t cmd, struct stream *s, struct pbr_rule *zrule)
 {
 	stream_reset(s);
