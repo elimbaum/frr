@@ -337,11 +337,13 @@ static void bgp_write_proceed_actions(struct peer *peer)
 	struct peer_af *paf;
 	struct bpacket *next_pkt;
 	struct update_subgroup *subgrp;
+	enum bgp_af_index index;
 
-	FOREACH_AFI_SAFI (afi, safi) {
-		paf = peer_af_find(peer, afi, safi);
+	for (index = BGP_AF_START; index < BGP_AF_MAX; index++) {
+		paf = peer->peer_af_array[index];
 		if (!paf)
 			continue;
+
 		subgrp = paf->subgroup;
 		if (!subgrp)
 			continue;
@@ -363,6 +365,9 @@ static void bgp_write_proceed_actions(struct peer *peer)
 				     bgp_generate_updgrp_packets, 0);
 			return;
 		}
+
+		afi = paf->afi;
+		safi = paf->safi;
 
 		/* No packets to send, see if EOR is pending */
 		if (CHECK_FLAG(peer->cap, PEER_CAP_RESTART_RCV)) {
@@ -415,11 +420,16 @@ int bgp_generate_updgrp_packets(struct thread *thread)
 		return 0;
 
 	do {
+		enum bgp_af_index index;
+
 		s = NULL;
-		FOREACH_AFI_SAFI (afi, safi) {
-			paf = peer_af_find(peer, afi, safi);
+		for (index = BGP_AF_START; index < BGP_AF_MAX; index++) {
+			paf = peer->peer_af_array[index];
 			if (!paf || !PAF_SUBGRP(paf))
 				continue;
+
+			afi = paf->afi;
+			safi = paf->safi;
 			next_pkt = paf->next_pkt_to_send;
 
 			/*
@@ -1347,6 +1357,16 @@ static int bgp_open_receive(struct peer *peer, bgp_size_t size)
 	   */
 
 	if (holdtime < 3 && holdtime != 0) {
+		bgp_notify_send_with_data(peer, BGP_NOTIFY_OPEN_ERR,
+					  BGP_NOTIFY_OPEN_UNACEP_HOLDTIME,
+					  (uint8_t *)holdtime_ptr, 2);
+		return BGP_Stop;
+	}
+
+	/* Send notification message when Hold Time received in the OPEN message
+	 * is smaller than configured minimum Hold Time. */
+	if (holdtime < peer->bgp->default_min_holdtime
+	    && peer->bgp->default_min_holdtime != 0) {
 		bgp_notify_send_with_data(peer, BGP_NOTIFY_OPEN_ERR,
 					  BGP_NOTIFY_OPEN_UNACEP_HOLDTIME,
 					  (uint8_t *)holdtime_ptr, 2);
@@ -2708,7 +2728,7 @@ int bgp_packet_process_error(struct thread *thread)
 
 	if (bgp_debug_neighbor_events(peer))
 		zlog_debug("%s [Event] BGP error %d on fd %d",
-			   peer->host, peer->fd, code);
+			   peer->host, code, peer->fd);
 
 	/* Closed connection or error on the socket */
 	if (peer_established(peer)) {

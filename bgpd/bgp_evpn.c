@@ -2385,6 +2385,7 @@ bgp_create_evpn_bgp_path_info(struct bgp_path_info *parent_pi,
 		memcpy(&pi->extra->label, &parent_pi->extra->label,
 		       sizeof(pi->extra->label));
 		pi->extra->num_labels = parent_pi->extra->num_labels;
+		pi->extra->igpmetric = parent_pi->extra->igpmetric;
 	}
 	bgp_path_info_add(dest, pi);
 
@@ -4334,6 +4335,54 @@ static void update_autort_vni(struct hash_bucket *bucket, struct bgp *bgp)
 }
 
 /*
+ * Handle autort change for L3VNI.
+ */
+static void update_autort_l3vni(struct bgp *bgp)
+{
+	if ((CHECK_FLAG(bgp->vrf_flags, BGP_VRF_IMPORT_RT_CFGD))
+	    && (CHECK_FLAG(bgp->vrf_flags, BGP_VRF_EXPORT_RT_CFGD)))
+		return;
+
+	if (!CHECK_FLAG(bgp->vrf_flags, BGP_VRF_IMPORT_RT_CFGD)) {
+		if (is_l3vni_live(bgp))
+			uninstall_routes_for_vrf(bgp);
+
+		/* Cleanup the RT to VRF mapping */
+		bgp_evpn_unmap_vrf_from_its_rts(bgp);
+
+		/* Remove auto generated RT */
+		evpn_auto_rt_import_delete_for_vrf(bgp);
+
+		list_delete_all_node(bgp->vrf_import_rtl);
+
+		/* Map auto derive or configured RTs */
+		evpn_auto_rt_import_add_for_vrf(bgp);
+	}
+
+	if (!CHECK_FLAG(bgp->vrf_flags, BGP_VRF_EXPORT_RT_CFGD)) {
+		list_delete_all_node(bgp->vrf_export_rtl);
+
+		evpn_auto_rt_export_delete_for_vrf(bgp);
+
+		evpn_auto_rt_export_add_for_vrf(bgp);
+
+		if (is_l3vni_live(bgp))
+			bgp_evpn_map_vrf_to_its_rts(bgp);
+	}
+
+	if (!is_l3vni_live(bgp))
+		return;
+
+	/* advertise type-5 routes if needed */
+	update_advertise_vrf_routes(bgp);
+
+	/* install all remote routes belonging to this l3vni
+	 * into corresponding vrf
+	 */
+	install_routes_for_vrf(bgp);
+}
+
+/*
  * Public functions.
  */
 
@@ -4705,6 +4754,8 @@ void bgp_evpn_handle_autort_change(struct bgp *bgp)
 		     (void (*)(struct hash_bucket *,
 			       void*))update_autort_vni,
 		     bgp);
+	if (bgp->l3vni)
+		update_autort_l3vni(bgp);
 }
 
 /*
@@ -6047,10 +6098,12 @@ bool bgp_evpn_is_prefix_nht_supported(const struct prefix *pfx)
 	 * type-5 routes. It may be tweaked later on for other routes, or
 	 * even removed completely when all routes are handled.
 	 */
-	if (pfx && pfx->family == AF_EVPN &&
-	    (evp->prefix.route_type == BGP_EVPN_MAC_IP_ROUTE ||
-	     evp->prefix.route_type == BGP_EVPN_IMET_ROUTE ||
-	     evp->prefix.route_type == BGP_EVPN_IP_PREFIX_ROUTE))
+	if (pfx && pfx->family == AF_EVPN
+	    && (evp->prefix.route_type == BGP_EVPN_MAC_IP_ROUTE
+		|| evp->prefix.route_type == BGP_EVPN_AD_ROUTE
+		|| evp->prefix.route_type == BGP_EVPN_ES_ROUTE
+		|| evp->prefix.route_type == BGP_EVPN_IMET_ROUTE
+		|| evp->prefix.route_type == BGP_EVPN_IP_PREFIX_ROUTE))
 		return true;
 
 	return false;

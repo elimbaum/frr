@@ -18,40 +18,33 @@
 # OF THIS SOFTWARE.
 #
 
+import ipaddress
+import sys
+import traceback
 from copy import deepcopy
 from time import sleep
-import traceback
-import ipaddr
-import ipaddress
-import os
-import sys
-from lib import topotest
-from lib.topolog import logger
-
-from lib.topogen import TopoRouter, get_topogen
-from lib.topotest import frr_unicode
 
 # Import common_config to use commomnly used APIs
 from lib.common_config import (
-    create_common_configuration,
-    InvalidCLIError,
-    load_config_to_router,
-    check_address_types,
-    generate_ips,
-    validate_ip_address,
-    find_interface_with_greater_ip,
-    run_frr_cmd,
+    create_common_configurations,
     FRRCFG_FILE,
+    InvalidCLIError,
+    check_address_types,
+    find_interface_with_greater_ip,
+    generate_ips,
+    get_frr_ipv6_linklocal,
     retry,
-    get_ipv6_linklocal_address,
-    get_frr_ipv6_linklocal
+    run_frr_cmd,
+    validate_ip_address,
 )
+from lib.topogen import get_topogen
+from lib.topolog import logger
+from lib.topotest import frr_unicode
 
-LOGDIR = "/tmp/topotests/"
-TMPDIR = None
+from lib import topotest
 
 
-def create_router_bgp(tgen, topo, input_dict=None, build=False, load_config=True):
+def create_router_bgp(tgen, topo=None, input_dict=None, build=False, load_config=True):
     """
     API to configure bgp on router
 
@@ -139,6 +132,9 @@ def create_router_bgp(tgen, topo, input_dict=None, build=False, load_config=True
     logger.debug("Entering lib API: {}".format(sys._getframe().f_code.co_name))
     result = False
 
+    if topo is None:
+        topo = tgen.json_topo
+
     # Flag is used when testing ipv6 over ipv4 or vice-versa
     afi_test = False
 
@@ -147,6 +143,8 @@ def create_router_bgp(tgen, topo, input_dict=None, build=False, load_config=True
     else:
         topo = topo["routers"]
         input_dict = deepcopy(input_dict)
+
+    config_data_dict = {}
 
     for router in input_dict.keys():
         if "bgp" not in input_dict[router]:
@@ -157,6 +155,8 @@ def create_router_bgp(tgen, topo, input_dict=None, build=False, load_config=True
 
         if type(bgp_data_list) is not list:
             bgp_data_list = [bgp_data_list]
+
+        config_data = []
 
         for bgp_data in bgp_data_list:
             data_all_bgp = __create_bgp_global(tgen, bgp_data, router, build)
@@ -198,16 +198,19 @@ def create_router_bgp(tgen, topo, input_dict=None, build=False, load_config=True
                         data_all_bgp = __create_l2vpn_evpn_address_family(
                             tgen, topo, bgp_data, router, config_data=data_all_bgp
                         )
+            if data_all_bgp:
+                config_data.extend(data_all_bgp)
 
-            try:
-                result = create_common_configuration(
-                    tgen, router, data_all_bgp, "bgp", build, load_config
-                )
-            except InvalidCLIError:
-                # Traceback
-                errormsg = traceback.format_exc()
-                logger.error(errormsg)
-                return errormsg
+        if config_data:
+            config_data_dict[router] = config_data
+
+    try:
+        result = create_common_configurations(
+            tgen, config_data_dict, "bgp", build, load_config
+        )
+    except InvalidCLIError:
+        logger.error("create_router_bgp", exc_info=True)
+        result = False
 
     logger.debug("Exiting lib API: create_router_bgp()")
     return result
@@ -226,7 +229,7 @@ def __create_bgp_global(tgen, input_dict, router, build=False):
 
     Returns
     -------
-    True or False
+    list of config commands
     """
 
     result = False
@@ -241,7 +244,7 @@ def __create_bgp_global(tgen, input_dict, router, build=False):
         logger.debug(
             "Router %s: 'local_as' not present in input_dict" "for BGP", router
         )
-        return False
+        return config_data
 
     local_as = bgp_data.setdefault("local_as", "")
     cmd = "router bgp {}".format(local_as)
@@ -265,6 +268,7 @@ def __create_bgp_global(tgen, input_dict, router, build=False):
     if router_id:
         config_data.append("bgp router-id {}".format(router_id))
 
+    config_data.append("bgp log-neighbor-changes")
     config_data.append("no bgp network import-check")
     bgp_peer_grp_data = bgp_data.setdefault("peer-group", {})
 
@@ -719,6 +723,7 @@ def __create_bgp_neighbor(topo, input_dict, router, addr_type, add_neigh=True):
     tgen = get_topogen()
     bgp_data = input_dict["address_family"]
     neigh_data = bgp_data[addr_type]["unicast"]["neighbor"]
+    global_connect = input_dict.get("connecttimer", 5)
 
     for name, peer_dict in neigh_data.items():
         for dest_link, peer in peer_dict["dest_link"].items():
@@ -798,6 +803,7 @@ def __create_bgp_neighbor(topo, input_dict, router, addr_type, add_neigh=True):
                 )
 
             disable_connected = peer.setdefault("disable_connected_check", False)
+            connect = peer.get("connecttimer", global_connect)
             keep_alive = peer.setdefault("keepalivetimer", 3)
             hold_down = peer.setdefault("holddowntimer", 10)
             password = peer.setdefault("password", None)
@@ -827,6 +833,9 @@ def __create_bgp_neighbor(topo, input_dict, router, addr_type, add_neigh=True):
                 config_data.append(
                     "{} timers {} {}".format(neigh_cxt, keep_alive, hold_down)
                 )
+            if int(connect) != 120:
+                config_data.append("{} timers connect {}".format(neigh_cxt, connect))
+
             if graceful_restart:
                 config_data.append("{} graceful-restart".format(neigh_cxt))
             elif graceful_restart == False:
@@ -1083,9 +1092,6 @@ def modify_bgp_config_when_bgpd_down(tgen, topo, input_dict):
 
     logger.debug("Entering lib API: {}".format(sys._getframe().f_code.co_name))
     try:
-
-        global LOGDIR
-
         result = create_router_bgp(
             tgen, topo, input_dict, build=False, load_config=False
         )
@@ -1099,13 +1105,10 @@ def modify_bgp_config_when_bgpd_down(tgen, topo, input_dict):
                 if router != dut:
                     continue
 
-                TMPDIR = os.path.join(LOGDIR, tgen.modname)
-
                 logger.info("Delete BGP config when BGPd is down in {}".format(router))
-                # Reading the config from /tmp/topotests and
-                # copy to /etc/frr/bgpd.conf
+                # Reading the config from "rundir" and copy to /etc/frr/bgpd.conf
                 cmd = "cat {}/{}/{} >> /etc/frr/bgpd.conf".format(
-                    TMPDIR, router, FRRCFG_FILE
+                    tgen.logdir, router, FRRCFG_FILE
                 )
                 router_list[router].run(cmd)
 
@@ -1194,7 +1197,7 @@ def verify_router_id(tgen, topo, input_dict, expected=True):
 
 
 @retry(retry_timeout=150)
-def verify_bgp_convergence(tgen, topo, dut=None, expected=True):
+def verify_bgp_convergence(tgen, topo=None, dut=None, expected=True):
     """
     API will verify if BGP is converged with in the given time frame.
     Running "show bgp summary json" command and verify bgp neighbor
@@ -1217,19 +1220,21 @@ def verify_bgp_convergence(tgen, topo, dut=None, expected=True):
     errormsg(str) or True
     """
 
+    if topo is None:
+        topo = tgen.json_topo
+
     result = False
     logger.debug("Entering lib API: {}".format(sys._getframe().f_code.co_name))
     tgen = get_topogen()
     for router, rnode in tgen.routers().items():
-        if 'bgp' not in topo['routers'][router]:
+        if "bgp" not in topo["routers"][router]:
             continue
 
         if dut is not None and dut != router:
             continue
 
         logger.info("Verifying BGP Convergence on router %s:", router)
-        show_bgp_json = run_frr_cmd(rnode, "show bgp vrf all summary json",
-                                    isjson=True)
+        show_bgp_json = run_frr_cmd(rnode, "show bgp vrf all summary json", isjson=True)
         # Verifying output dictionary show_bgp_json is empty or not
         if not bool(show_bgp_json):
             errormsg = "BGP is not running"
@@ -1266,39 +1271,43 @@ def verify_bgp_convergence(tgen, topo, dut=None, expected=True):
                         data = topo["routers"][bgp_neighbor]["links"]
                         for dest_link in dest_link_dict.keys():
                             if dest_link in data:
-                                peer_details = \
-                                    peer_data[_addr_type][dest_link]
+                                peer_details = peer_data[_addr_type][dest_link]
 
-                                neighbor_ip = \
-                                    data[dest_link][_addr_type].split(
-                                        "/")[0]
+                                neighbor_ip = data[dest_link][_addr_type].split("/")[0]
                                 nh_state = None
 
-                                if "ipv4Unicast" in show_bgp_json[vrf] or \
-                                    "ipv6Unicast" in show_bgp_json[vrf]:
-                                    errormsg = ("[DUT: %s] VRF: %s, "
-                                                "ipv4Unicast/ipv6Unicast"
-                                                " address-family present"
-                                                " under l2vpn" % (router,
-                                                                 vrf))
+                                if (
+                                    "ipv4Unicast" in show_bgp_json[vrf]
+                                    or "ipv6Unicast" in show_bgp_json[vrf]
+                                ):
+                                    errormsg = (
+                                        "[DUT: %s] VRF: %s, "
+                                        "ipv4Unicast/ipv6Unicast"
+                                        " address-family present"
+                                        " under l2vpn" % (router, vrf)
+                                    )
                                     return errormsg
 
-                                l2VpnEvpn_data = \
-                                    show_bgp_json[vrf]["l2VpnEvpn"][
-                                        "peers"]
-                                nh_state = \
-                                    l2VpnEvpn_data[neighbor_ip]["state"]
+                                l2VpnEvpn_data = show_bgp_json[vrf]["l2VpnEvpn"][
+                                    "peers"
+                                ]
+                                nh_state = l2VpnEvpn_data[neighbor_ip]["state"]
 
                                 if nh_state == "Established":
                                     no_of_evpn_peer += 1
 
                 if no_of_evpn_peer == total_evpn_peer:
-                    logger.info("[DUT: %s] VRF: %s, BGP is Converged for "
-                                "epvn peers", router, vrf)
+                    logger.info(
+                        "[DUT: %s] VRF: %s, BGP is Converged for " "epvn peers",
+                        router,
+                        vrf,
+                    )
                     result = True
                 else:
-                    errormsg = ("[DUT: %s] VRF: %s, BGP is not converged "
-                               "for evpn peers" % (router, vrf))
+                    errormsg = (
+                        "[DUT: %s] VRF: %s, BGP is not converged "
+                        "for evpn peers" % (router, vrf)
+                    )
                     return errormsg
             else:
                 total_peer = 0
@@ -1306,76 +1315,72 @@ def verify_bgp_convergence(tgen, topo, dut=None, expected=True):
                     if not check_address_types(addr_type):
                         continue
 
-                    bgp_neighbors = \
-                        bgp_addr_type[addr_type]["unicast"]["neighbor"]
+                    bgp_neighbors = bgp_addr_type[addr_type]["unicast"]["neighbor"]
 
                     for bgp_neighbor in bgp_neighbors:
-                        total_peer += \
-                            len(bgp_neighbors[bgp_neighbor]["dest_link"])
+                        total_peer += len(bgp_neighbors[bgp_neighbor]["dest_link"])
 
                 no_of_peer = 0
                 for addr_type in bgp_addr_type.keys():
                     if not check_address_types(addr_type):
                         continue
-                    bgp_neighbors = \
-                        bgp_addr_type[addr_type]["unicast"]["neighbor"]
+                    bgp_neighbors = bgp_addr_type[addr_type]["unicast"]["neighbor"]
 
                     for bgp_neighbor, peer_data in bgp_neighbors.items():
-                            for dest_link in peer_data["dest_link"].\
-                                keys():
-                                data = \
-                                    topo["routers"][bgp_neighbor]["links"]
-                                if dest_link in data:
-                                    peer_details = \
-                                        peer_data['dest_link'][dest_link]
-                                    # for link local neighbors
-                                    if "neighbor_type" in peer_details and \
-                                            peer_details["neighbor_type"] == \
-                                            'link-local':
-                                        intf = topo["routers"][bgp_neighbor][
-                                            "links"][dest_link]["interface"]
-                                        neighbor_ip = get_frr_ipv6_linklocal(
-                                            tgen, bgp_neighbor, intf)
-                                    elif "source_link" in peer_details:
-                                        neighbor_ip = \
-                                            topo["routers"][bgp_neighbor][
-                                                "links"][peer_details[
-                                                    'source_link']][
-                                                    addr_type].\
-                                                        split("/")[0]
-                                    elif "neighbor_type" in peer_details and \
-                                            peer_details["neighbor_type"] == \
-                                            'unnumbered':
-                                        neighbor_ip = \
-                                            data[dest_link]["peer-interface"]
-                                    else:
-                                        neighbor_ip = \
-                                            data[dest_link][addr_type].split(
-                                                "/")[0]
-                                    nh_state = None
-                                    neighbor_ip = neighbor_ip.lower()
-                                    if addr_type == "ipv4":
-                                        ipv4_data = show_bgp_json[vrf][
-                                            "ipv4Unicast"]["peers"]
-                                        nh_state = \
-                                            ipv4_data[neighbor_ip]["state"]
-                                    else:
-                                        ipv6_data = show_bgp_json[vrf][
-                                            "ipv6Unicast"]["peers"]
-                                        if neighbor_ip in ipv6_data:
-                                            nh_state = \
-                                                ipv6_data[neighbor_ip]["state"]
+                        for dest_link in peer_data["dest_link"].keys():
+                            data = topo["routers"][bgp_neighbor]["links"]
+                            if dest_link in data:
+                                peer_details = peer_data["dest_link"][dest_link]
+                                # for link local neighbors
+                                if (
+                                    "neighbor_type" in peer_details
+                                    and peer_details["neighbor_type"] == "link-local"
+                                ):
+                                    intf = topo["routers"][bgp_neighbor]["links"][
+                                        dest_link
+                                    ]["interface"]
+                                    neighbor_ip = get_frr_ipv6_linklocal(
+                                        tgen, bgp_neighbor, intf
+                                    )
+                                elif "source_link" in peer_details:
+                                    neighbor_ip = topo["routers"][bgp_neighbor][
+                                        "links"
+                                    ][peer_details["source_link"]][addr_type].split(
+                                        "/"
+                                    )[
+                                        0
+                                    ]
+                                elif (
+                                    "neighbor_type" in peer_details
+                                    and peer_details["neighbor_type"] == "unnumbered"
+                                ):
+                                    neighbor_ip = data[dest_link]["peer-interface"]
+                                else:
+                                    neighbor_ip = data[dest_link][addr_type].split("/")[
+                                        0
+                                    ]
+                                nh_state = None
+                                neighbor_ip = neighbor_ip.lower()
+                                if addr_type == "ipv4":
+                                    ipv4_data = show_bgp_json[vrf]["ipv4Unicast"][
+                                        "peers"
+                                    ]
+                                    nh_state = ipv4_data[neighbor_ip]["state"]
+                                else:
+                                    ipv6_data = show_bgp_json[vrf]["ipv6Unicast"][
+                                        "peers"
+                                    ]
+                                    if neighbor_ip in ipv6_data:
+                                        nh_state = ipv6_data[neighbor_ip]["state"]
 
-                                    if nh_state == "Established":
-                                        no_of_peer += 1
+                                if nh_state == "Established":
+                                    no_of_peer += 1
 
                 if no_of_peer == total_peer and no_of_peer > 0:
-                    logger.info("[DUT: %s] VRF: %s, BGP is Converged",
-                                router, vrf)
+                    logger.info("[DUT: %s] VRF: %s, BGP is Converged", router, vrf)
                     result = True
                 else:
-                    errormsg = ("[DUT: %s] VRF: %s, BGP is not converged"
-                        % (router, vrf))
+                    errormsg = "[DUT: %s] VRF: %s, BGP is not converged" % (router, vrf)
                     return errormsg
 
     logger.debug("Exiting lib API: {}".format(sys._getframe().f_code.co_name))
@@ -1384,7 +1389,14 @@ def verify_bgp_convergence(tgen, topo, dut=None, expected=True):
 
 @retry(retry_timeout=16)
 def verify_bgp_community(
-    tgen, addr_type, router, network, input_dict=None, vrf=None, bestpath=False, expected=True
+    tgen,
+    addr_type,
+    router,
+    network,
+    input_dict=None,
+    vrf=None,
+    bestpath=False,
+    expected=True,
 ):
     """
     API to veiryf BGP large community is attached in route for any given
@@ -1532,15 +1544,16 @@ def modify_as_number(tgen, topo, input_dict):
         create_router_bgp(tgen, topo, router_dict)
 
         logger.info("Applying modified bgp configuration")
-        create_router_bgp(tgen, new_topo)
-
+        result = create_router_bgp(tgen, new_topo)
+        if result is not True:
+            result = "Error applying new AS number config"
     except Exception as e:
         errormsg = traceback.format_exc()
         logger.error(errormsg)
         return errormsg
 
     logger.debug("Exiting lib API: {}".format(sys._getframe().f_code.co_name))
-    return True
+    return result
 
 
 @retry(retry_timeout=8)
@@ -2209,7 +2222,7 @@ def verify_bgp_attributes(
     input_dict=None,
     seq_id=None,
     nexthop=None,
-    expected=True
+    expected=True,
 ):
     """
     API will verify BGP attributes set by Route-map for given prefix and
@@ -2255,7 +2268,7 @@ def verify_bgp_attributes(
     """
 
     logger.debug("Entering lib API: {}".format(sys._getframe().f_code.co_name))
-    for router, rnode in tgen.routers().iteritems():
+    for router, rnode in tgen.routers().items():
         if router != dut:
             continue
 
@@ -2659,9 +2672,16 @@ def verify_best_path_as_per_admin_distance(
     return True
 
 
-@retry(retry_timeout=10, initial_wait=2)
+@retry(retry_timeout=30)
 def verify_bgp_rib(
-    tgen, addr_type, dut, input_dict, next_hop=None, aspath=None, multi_nh=None, expected=True
+    tgen,
+    addr_type,
+    dut,
+    input_dict,
+    next_hop=None,
+    aspath=None,
+    multi_nh=None,
+    expected=True,
 ):
     """
     This API is to verify whether bgp rib has any
@@ -2963,7 +2983,9 @@ def verify_bgp_rib(
 
 
 @retry(retry_timeout=10)
-def verify_graceful_restart(tgen, topo, addr_type, input_dict, dut, peer, expected=True):
+def verify_graceful_restart(
+    tgen, topo, addr_type, input_dict, dut, peer, expected=True
+):
     """
     This API is to verify verify_graceful_restart configuration of DUT and
     cross verify the same from the peer bgp routerrouter.
@@ -3765,7 +3787,9 @@ def verify_graceful_restart_timers(tgen, topo, addr_type, input_dict, dut, peer)
 
 
 @retry(retry_timeout=8)
-def verify_gr_address_family(tgen, topo, addr_type, addr_family, dut, expected=True):
+def verify_gr_address_family(
+    tgen, topo, addr_type, addr_family, dut, peer, expected=True
+):
     """
     This API is to verify gr_address_family in the BGP gr capability advertised
     by the neighbor router
@@ -3777,80 +3801,84 @@ def verify_gr_address_family(tgen, topo, addr_type, addr_family, dut, expected=T
     * `addr_type` : ip type ipv4/ipv6
     * `addr_type` : ip type IPV4 Unicast/IPV6 Unicast
     * `dut`: input dut router name
+    * `peer`: input peer router to check
     * `expected` : expected results from API, by-default True
 
     Usage
     -----
 
-    result = verify_gr_address_family(tgen, topo, "ipv4", "ipv4Unicast", "r1")
+    result = verify_gr_address_family(tgen, topo, "ipv4", "ipv4Unicast", "r1", "r3")
 
     Returns
     -------
-    errormsg(str) or True
+    errormsg(str) or None
     """
 
     logger.debug("Entering lib API: {}".format(sys._getframe().f_code.co_name))
 
-    for router, rnode in tgen.routers().items():
-        if router != dut:
-            continue
+    if not check_address_types(addr_type):
+        logger.debug("Exiting lib API: {}".format(sys._getframe().f_code.co_name))
+        return
 
-        bgp_addr_type = topo["routers"][router]["bgp"]["address_family"]
+    routers = tgen.routers()
+    if dut not in routers:
+        return "{} not in routers".format(dut)
 
-        if addr_type in bgp_addr_type:
-            if not check_address_types(addr_type):
-                continue
+    rnode = routers[dut]
+    bgp_addr_type = topo["routers"][dut]["bgp"]["address_family"]
 
-            bgp_neighbors = bgp_addr_type[addr_type]["unicast"]["neighbor"]
+    if addr_type not in bgp_addr_type:
+        return "{} not in bgp_addr_types".format(addr_type)
 
-            for bgp_neighbor, peer_data in bgp_neighbors.items():
-                for dest_link, peer_dict in peer_data["dest_link"].items():
-                    data = topo["routers"][bgp_neighbor]["links"]
+    if peer not in bgp_addr_type[addr_type]["unicast"]["neighbor"]:
+        return "{} not a peer of {} over {}".format(peer, dut, addr_type)
 
-                    if dest_link in data:
-                        neighbor_ip = data[dest_link][addr_type].split("/")[0]
+    nbr_links = topo["routers"][peer]["links"]
+    if dut not in nbr_links or addr_type not in nbr_links[dut]:
+        return "peer {} missing back link to {} over {}".format(peer, dut, addr_type)
 
-            logger.info(
-                "[DUT: {}]: Checking bgp graceful-restart"
-                " show o/p  {}".format(dut, neighbor_ip)
-            )
+    neighbor_ip = nbr_links[dut][addr_type].split("/")[0]
 
-            show_bgp_graceful_json = run_frr_cmd(
-                rnode,
-                "show bgp {} neighbor {} graceful-restart json".format(
-                    addr_type, neighbor_ip
-                ),
-                isjson=True,
-            )
+    logger.info(
+        "[DUT: {}]: Checking bgp graceful-restart show o/p {} for {}".format(
+            dut, neighbor_ip, addr_family
+        )
+    )
 
-            show_bgp_graceful_json_out = show_bgp_graceful_json[neighbor_ip]
+    show_bgp_graceful_json = run_frr_cmd(
+        rnode,
+        "show bgp {} neighbor {} graceful-restart json".format(addr_type, neighbor_ip),
+        isjson=True,
+    )
 
-            if show_bgp_graceful_json_out["neighborAddr"] == neighbor_ip:
-                logger.info("Neighbor ip matched  {}".format(neighbor_ip))
-            else:
-                errormsg = "Neighbor ip NOT a match {}".format(neighbor_ip)
-                return errormsg
+    show_bgp_graceful_json_out = show_bgp_graceful_json[neighbor_ip]
 
-            if addr_family == "ipv4Unicast":
-                if "ipv4Unicast" in show_bgp_graceful_json_out:
-                    logger.info("ipv4Unicast present for {} ".format(neighbor_ip))
-                    return True
-                else:
-                    errormsg = "ipv4Unicast NOT present for {} ".format(neighbor_ip)
-                    return errormsg
+    if show_bgp_graceful_json_out["neighborAddr"] == neighbor_ip:
+        logger.info("Neighbor ip matched  {}".format(neighbor_ip))
+    else:
+        errormsg = "Neighbor ip NOT a match {}".format(neighbor_ip)
+        return errormsg
 
-            elif addr_family == "ipv6Unicast":
-                if "ipv6Unicast" in show_bgp_graceful_json_out:
-                    logger.info("ipv6Unicast present for {} ".format(neighbor_ip))
-                    return True
-                else:
-                    errormsg = "ipv6Unicast NOT present for {} ".format(neighbor_ip)
-                    return errormsg
-            else:
-                errormsg = "Aaddress family: {} present for {} ".format(
-                    addr_family, neighbor_ip
-                )
-                return errormsg
+    if addr_family == "ipv4Unicast":
+        if "ipv4Unicast" in show_bgp_graceful_json_out:
+            logger.info("ipv4Unicast present for {} ".format(neighbor_ip))
+            return True
+        else:
+            errormsg = "ipv4Unicast NOT present for {} ".format(neighbor_ip)
+            return errormsg
+
+    elif addr_family == "ipv6Unicast":
+        if "ipv6Unicast" in show_bgp_graceful_json_out:
+            logger.info("ipv6Unicast present for {} ".format(neighbor_ip))
+            return True
+        else:
+            errormsg = "ipv6Unicast NOT present for {} ".format(neighbor_ip)
+            return errormsg
+    else:
+        errormsg = "Aaddress family: {} present for {} ".format(
+            addr_family, neighbor_ip
+        )
+        return errormsg
 
     logger.debug("Exiting lib API: {}".format(sys._getframe().f_code.co_name))
 
@@ -3867,7 +3895,7 @@ def verify_attributes_for_evpn_routes(
     ipLen=None,
     rd_peer=None,
     rt_peer=None,
-    expected=True
+    expected=True,
 ):
     """
     API to verify rd and rt value using "sh bgp l2vpn evpn 10.1.1.1"

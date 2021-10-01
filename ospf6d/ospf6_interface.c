@@ -44,9 +44,10 @@
 #include "ospf6d.h"
 #include "ospf6_bfd.h"
 #include "ospf6_zebra.h"
+#include "ospf6_gr.h"
 #include "lib/json.h"
 
-DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_IF,       "OSPF6 interface");
+DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_IF, "OSPF6 interface");
 DEFINE_MTYPE_STATIC(OSPF6D, CFG_PLIST_NAME, "configured prefix list names");
 DEFINE_QOBJ_TYPE(ospf6_interface);
 DEFINE_HOOK(ospf6_interface_change,
@@ -58,6 +59,22 @@ unsigned char conf_debug_ospf6_interface = 0;
 const char *const ospf6_interface_state_str[] = {
 	"None",    "Down", "Loopback", "Waiting", "PointToPoint",
 	"DROther", "BDR",  "DR",       NULL};
+
+int ospf6_interface_neighbor_count(struct ospf6_interface *oi)
+{
+	int count = 0;
+	struct ospf6_neighbor *nbr = NULL;
+	struct listnode *node;
+
+	for (ALL_LIST_ELEMENTS_RO(oi->neighbor_list, node, nbr)) {
+		/* Down state is not shown. */
+		if (nbr->state == OSPF6_NEIGHBOR_DOWN)
+			continue;
+		count++;
+	}
+
+	return count;
+}
 
 struct ospf6_interface *ospf6_interface_lookup_by_ifindex(ifindex_t ifindex,
 							  vrf_id_t vrf_id)
@@ -579,7 +596,7 @@ static struct ospf6_neighbor *better_drouter(struct ospf6_neighbor *a,
 	return a;
 }
 
-static uint8_t dr_election(struct ospf6_interface *oi)
+uint8_t dr_election(struct ospf6_interface *oi)
 {
 	struct listnode *node, *nnode;
 	struct ospf6_neighbor *on, *drouter, *bdrouter, myself;
@@ -895,6 +912,17 @@ int interface_down(struct thread *thread)
 
 	/* Stop trying to set socket options. */
 	THREAD_OFF(oi->thread_sso);
+
+	/* Cease the HELPER role for all the neighbours
+	 * of this interface.
+	 */
+	if (ospf6_interface_neighbor_count(oi)) {
+		struct listnode *ln;
+		struct ospf6_neighbor *nbr = NULL;
+
+		for (ALL_LIST_ELEMENTS_RO(oi->neighbor_list, ln, nbr))
+			ospf6_gr_helper_exit(nbr, OSPF6_GR_HELPER_TOPO_CHG);
+	}
 
 	for (ALL_LIST_ELEMENTS(oi->neighbor_list, node, nnode, on))
 		ospf6_neighbor_delete(on);
@@ -1302,7 +1330,6 @@ DEFUN(show_ipv6_ospf6_interface, show_ipv6_ospf6_interface_ifname_cmd,
 	bool all_vrf = false;
 	int idx_vrf = 0;
 
-	OSPF6_CMD_CHECK_RUNNING();
 	OSPF6_FIND_VRF_ARGS(argv, argc, idx_vrf, vrf_name, all_vrf);
 	if (idx_vrf > 0) {
 		idx_ifname += 2;
@@ -1519,7 +1546,6 @@ DEFUN(show_ipv6_ospf6_interface_traffic, show_ipv6_ospf6_interface_traffic_cmd,
 	bool all_vrf = false;
 	int idx_vrf = 0;
 
-	OSPF6_CMD_CHECK_RUNNING();
 	OSPF6_FIND_VRF_ARGS(argv, argc, idx_vrf, vrf_name, all_vrf);
 
 	for (ALL_LIST_ELEMENTS_RO(om6->ospf6, node, ospf6)) {
@@ -1562,7 +1588,6 @@ DEFUN(show_ipv6_ospf6_interface_ifname_prefix,
 	bool all_vrf = false;
 	int idx_vrf = 0;
 
-	OSPF6_CMD_CHECK_RUNNING();
 	OSPF6_FIND_VRF_ARGS(argv, argc, idx_vrf, vrf_name, all_vrf);
 	if (idx_vrf > 0) {
 		idx_ifname += 2;
@@ -1623,7 +1648,6 @@ DEFUN(show_ipv6_ospf6_interface_prefix, show_ipv6_ospf6_interface_prefix_cmd,
 	bool all_vrf = false;
 	int idx_vrf = 0;
 
-	OSPF6_CMD_CHECK_RUNNING();
 	OSPF6_FIND_VRF_ARGS(argv, argc, idx_vrf, vrf_name, all_vrf);
 	if (idx_vrf > 0)
 		idx_prefix += 2;
@@ -2565,7 +2589,7 @@ static int config_write_ospf6_interface(struct vty *vty, struct vrf *vrf)
 
 		ospf6_bfd_write_config(vty, oi);
 
-		vty_endframe(vty, "!\n");
+		vty_endframe(vty, "exit\n!\n");
 	}
 	return 0;
 }
@@ -2583,15 +2607,6 @@ static int config_write_interface(struct vty *vty)
 
 	return write;
 }
-
-static int config_write_ospf6_interface(struct vty *vty, struct vrf *vrf);
-static struct cmd_node interface_node = {
-	.name = "interface",
-	.node = INTERFACE_NODE,
-	.parent_node = CONFIG_NODE,
-	.prompt = "%s(config-if)# ",
-	.config_write = config_write_interface,
-};
 
 static int ospf6_ifp_create(struct interface *ifp)
 {
@@ -2650,8 +2665,7 @@ static int ospf6_ifp_destroy(struct interface *ifp)
 void ospf6_interface_init(void)
 {
 	/* Install interface node. */
-	install_node(&interface_node);
-	if_cmd_init();
+	if_cmd_init(config_write_interface);
 	if_zapi_callbacks(ospf6_ifp_create, ospf6_ifp_up,
 			  ospf6_ifp_down, ospf6_ifp_destroy);
 

@@ -1508,15 +1508,6 @@ DEFUN_NOSH(show_debugging_pbr,
 /* ------------------------------------------------------------------------- */
 
 
-static int pbr_interface_config_write(struct vty *vty);
-static struct cmd_node interface_node = {
-	.name = "interface",
-	.node = INTERFACE_NODE,
-	.parent_node = CONFIG_NODE,
-	.prompt = "%s(config-if)# ",
-	.config_write = pbr_interface_config_write,
-};
-
 static int pbr_interface_config_write(struct vty *vty)
 {
 	struct interface *ifp;
@@ -1535,7 +1526,7 @@ static int pbr_interface_config_write(struct vty *vty)
 
 			pbr_map_write_interfaces(vty, ifp);
 
-			vty_endframe(vty, "!\n");
+			vty_endframe(vty, "exit\n!\n");
 		}
 	}
 
@@ -1658,6 +1649,7 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 		pbrms_nexthop_group_write_individual_nexthop(vty, pbrms);
 	}
 
+	vty_out(vty, "exit\n");
 	vty_out(vty, "!\n");
 	return 1;
 }
@@ -1703,10 +1695,9 @@ void pbr_vty_init(void)
 {
 	cmd_variable_handler_register(pbr_map_name);
 
-	vrf_cmd_init(NULL, &pbr_privs);
+	vrf_cmd_init(NULL);
 
-	install_node(&interface_node);
-	if_cmd_init();
+	if_cmd_init(pbr_interface_config_write);
 
 	install_node(&pbr_map_node);
 

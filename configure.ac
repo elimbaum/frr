@@ -322,6 +322,7 @@ AC_C_FLAG([-fno-omit-frame-pointer])
 AC_C_FLAG([-funwind-tables])
 AC_C_FLAG([-Wall])
 AC_C_FLAG([-Wextra])
+AC_C_FLAG([-Wstrict-prototypes])
 AC_C_FLAG([-Wmissing-prototypes])
 AC_C_FLAG([-Wmissing-declarations])
 AC_C_FLAG([-Wpointer-arith])
@@ -330,7 +331,6 @@ AC_C_FLAG([-Wwrite-strings])
 AC_C_FLAG([-Wundef])
 if test "$enable_gcc_ultra_verbose" = "yes" ; then
   AC_C_FLAG([-Wcast-qual])
-  AC_C_FLAG([-Wstrict-prototypes])
   AC_C_FLAG([-Wmissing-noreturn])
   AC_C_FLAG([-Wmissing-format-attribute])
   AC_C_FLAG([-Wunreachable-code])
@@ -487,9 +487,12 @@ LT_INIT
 _LT_CONFIG_LIBTOOL([
   patch -N -i "${srcdir}/m4/libtool-whole-archive.patch" libtool >&AS_MESSAGE_LOG_FD || \
     AC_MSG_WARN([Could not patch libtool for static linking support.  Loading modules into a statically linked daemon will fail.])
-  sed -e 's%func_warning "relinking%true #\0%' -i libtool || true
-  sed -e 's%func_warning "remember to run%true #\0%' -i libtool || true
-  sed -e 's%func_warning ".*has not been installed in%true #\0%' -i libtool || true
+dnl the -i option is not POSIX sed and the BSDs implement it differently
+dnl cat'ing the output back instead of mv/cp keeps permissions on libtool intact
+  sed -e 's%func_warning "relinking%true #\0%'                   libtool > libtool.sed && cat libtool.sed > libtool
+  sed -e 's%func_warning "remember to run%true #\0%'             libtool > libtool.sed && cat libtool.sed > libtool
+  sed -e 's%func_warning ".*has not been installed in%true #\0%' libtool > libtool.sed && cat libtool.sed > libtool
+  test -f libtool.sed && rm libtool.sed
 ])
 if test "$enable_static_bin" = "yes"; then
   AC_LDFLAGS_EXEC="-static"
@@ -1923,7 +1926,7 @@ dnl -----
 dnl LTTng
 dnl -----
 if test "$enable_lttng" = "yes"; then
-  PKG_CHECK_MODULES([UST], [lttng-ust >= 2.12.0], [
+  PKG_CHECK_MODULES([UST], [lttng-ust >= 2.9.0], [
     AC_DEFINE([HAVE_LTTNG], [1], [Enable LTTng support])
     LTTNG=true
   ], [
@@ -2516,6 +2519,7 @@ AC_DEFINE_UNQUOTED([LDPD_SOCKET], ["$frr_statedir%s%s/ldpd.sock"], [ldpd control
 AC_DEFINE_UNQUOTED([ZEBRA_SERV_PATH], ["$frr_statedir%s%s/zserv.api"], [zebra api socket])
 AC_DEFINE_UNQUOTED([BFDD_CONTROL_SOCKET], ["$frr_statedir%s%s/bfdd.sock"], [bfdd control socket])
 AC_DEFINE_UNQUOTED([OSPFD_GR_STATE], ["$frr_statedir%s/ospfd-gr.json"], [ospfd GR state information])
+AC_DEFINE_UNQUOTED([OSPF6D_GR_STATE], ["$frr_statedir/ospf6d-gr.json"], [ospf6d GR state information])
 AC_DEFINE_UNQUOTED([DAEMON_VTY_DIR], ["$frr_statedir%s%s"], [daemon vty directory])
 AC_DEFINE_UNQUOTED([DAEMON_DB_DIR], ["$frr_statedir"], [daemon database directory])
 
@@ -2660,8 +2664,9 @@ if test "$enable_rpath" = "yes" ; then
 	true
 else
 	# See https://old-en.opensuse.org/openSUSE:Packaging_Guidelines#Removing_Rpath
-	sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
-	sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
+	sed -e 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool > libtool.sed && cat libtool.sed > libtool
+	sed -e 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g'         libtool > libtool.sed && cat libtool.sed > libtool
+	test -f libtool.sed && rm libtool.sed
 fi
 
 echo "

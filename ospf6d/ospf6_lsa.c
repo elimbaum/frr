@@ -29,6 +29,7 @@
 #include "memory.h"
 #include "thread.h"
 #include "checksum.h"
+#include "frrstr.h"
 
 #include "ospf6_proto.h"
 #include "ospf6_lsa.h"
@@ -80,7 +81,6 @@ static int ospf6_unknown_lsa_show(struct vty *vty, struct ospf6_lsa *lsa,
 				  json_object *json_obj, bool use_json)
 {
 	uint8_t *start, *end, *current;
-	char byte[4];
 
 	start = (uint8_t *)lsa->header + sizeof(struct ospf6_lsa_header);
 	end = (uint8_t *)lsa->header + ntohs(lsa->header->length);
@@ -95,8 +95,7 @@ static int ospf6_unknown_lsa_show(struct vty *vty, struct ospf6_lsa *lsa,
 			else if ((current - start) % 4 == 0)
 				vty_out(vty, " ");
 
-			snprintf(byte, sizeof(byte), "%02x", *current);
-			vty_out(vty, "%s", byte);
+			vty_out(vty, "%02x", *current);
 		}
 
 		vty_out(vty, "\n\n");
@@ -553,29 +552,51 @@ void ospf6_lsa_show_summary(struct vty *vty, struct ospf6_lsa *lsa,
 void ospf6_lsa_show_dump(struct vty *vty, struct ospf6_lsa *lsa,
 			 json_object *json_array, bool use_json)
 {
-	uint8_t *start, *end, *current;
+	uint8_t *start = NULL;
+	uint8_t *end = NULL;
+	uint8_t *current = NULL;
 	char byte[4];
+	char *header_str = NULL;
+	char adv_router[INET6_ADDRSTRLEN];
+	char id[INET6_ADDRSTRLEN];
+	json_object *json = NULL;
 
 	start = (uint8_t *)lsa->header;
 	end = (uint8_t *)lsa->header + ntohs(lsa->header->length);
 
-	if (use_json)
-		return;
+	if (use_json) {
+		json = json_object_new_object();
+		size_t header_str_sz = (2 * (end - start)) + 1;
 
-	vty_out(vty, "\n");
-	vty_out(vty, "%s:\n", lsa->name);
+		header_str = XMALLOC(MTYPE_TMP, header_str_sz);
 
-	for (current = start; current < end; current++) {
-		if ((current - start) % 16 == 0)
-			vty_out(vty, "\n        ");
-		else if ((current - start) % 4 == 0)
-			vty_out(vty, " ");
+		inet_ntop(AF_INET, &lsa->header->id, id, sizeof(id));
+		inet_ntop(AF_INET, &lsa->header->adv_router, adv_router,
+			  sizeof(adv_router));
 
-		snprintf(byte, sizeof(byte), "%02x", *current);
-		vty_out(vty, "%s", byte);
+		frrstr_hex(header_str, header_str_sz, start, end - start);
+
+		json_object_string_add(json, "linkStateId", id);
+		json_object_string_add(json, "advertisingRouter", adv_router);
+		json_object_string_add(json, "header", header_str);
+		json_object_array_add(json_array, json);
+
+		XFREE(MTYPE_TMP, header_str);
+	} else {
+		vty_out(vty, "\n%s:\n", lsa->name);
+
+		for (current = start; current < end; current++) {
+			if ((current - start) % 16 == 0)
+				vty_out(vty, "\n        ");
+			else if ((current - start) % 4 == 0)
+				vty_out(vty, " ");
+
+			snprintf(byte, sizeof(byte), "%02x", *current);
+			vty_out(vty, "%s", byte);
+		}
+
+		vty_out(vty, "\n\n");
 	}
-
-	vty_out(vty, "\n\n");
 
 	return;
 }
@@ -1000,6 +1021,30 @@ static char *ospf6_lsa_handler_name(const struct ospf6_lsa_handler *h)
 	return buf;
 }
 
+DEFPY (debug_ospf6_lsa_all,
+       debug_ospf6_lsa_all_cmd,
+       "[no$no] debug ospf6 lsa all",
+       NO_STR
+       DEBUG_STR
+       OSPF6_STR
+       "Debug Link State Advertisements (LSAs)\n"
+       "Display for all types of LSAs\n")
+{
+	unsigned int i;
+	struct ospf6_lsa_handler *handler = NULL;
+
+	for (i = 0; i < vector_active(ospf6_lsa_handler_vector); i++) {
+		handler = vector_slot(ospf6_lsa_handler_vector, i);
+		if (handler == NULL)
+			continue;
+		if (!no)
+			SET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_ALL);
+		else
+			UNSET_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_ALL);
+	}
+	return CMD_SUCCESS;
+}
+
 DEFPY (debug_ospf6_lsa_aggregation,
        debug_ospf6_lsa_aggregation_cmd,
        "[no] debug ospf6 lsa aggregation",
@@ -1131,6 +1176,8 @@ DEFUN (no_debug_ospf6_lsa_type,
 
 void install_element_ospf6_debug_lsa(void)
 {
+	install_element(ENABLE_NODE, &debug_ospf6_lsa_all_cmd);
+	install_element(CONFIG_NODE, &debug_ospf6_lsa_all_cmd);
 	install_element(ENABLE_NODE, &debug_ospf6_lsa_hex_cmd);
 	install_element(ENABLE_NODE, &no_debug_ospf6_lsa_hex_cmd);
 	install_element(CONFIG_NODE, &debug_ospf6_lsa_hex_cmd);
@@ -1144,6 +1191,23 @@ int config_write_ospf6_debug_lsa(struct vty *vty)
 {
 	unsigned int i;
 	const struct ospf6_lsa_handler *handler;
+	bool debug_all = true;
+
+	for (i = 0; i < vector_active(ospf6_lsa_handler_vector); i++) {
+		handler = vector_slot(ospf6_lsa_handler_vector, i);
+		if (handler == NULL)
+			continue;
+		if (CHECK_FLAG(handler->lh_debug, OSPF6_LSA_DEBUG_ALL)
+		    < OSPF6_LSA_DEBUG_ALL) {
+			debug_all = false;
+			break;
+		}
+	}
+
+	if (debug_all) {
+		vty_out(vty, "debug ospf6 lsa all\n");
+		return 0;
+	}
 
 	for (i = 0; i < vector_active(ospf6_lsa_handler_vector); i++) {
 		handler = vector_slot(ospf6_lsa_handler_vector, i);

@@ -157,89 +157,93 @@ ASBR Summarisation Support in OSPFv3
    When detail option is used, it shows all the prefixes falling under each
    summary-configuration apart from other information.
 
-.. clicmd:: debug ospf6 lsa aggregation
-
-   This command can be used to enable the debugs related to the summarisation
-   of these LSAs.
-
-.. _ospf6-debugging:
-
-OSPFv3 Debugging
-================
-
-The following debug commands are supported:
-
-.. clicmd:: debug ospf6 abr
-
-   Toggle OSPFv3 ABR debugging messages.
-
-.. clicmd:: debug ospf6 asbr
-
-   Toggle OSPFv3 ASBR debugging messages.
-
-.. clicmd:: debug ospf6 border-routers
-
-   Toggle OSPFv3 border router debugging messages.
-
-.. clicmd:: debug ospf6 flooding
-
-   Toggle OSPFv3 flooding debugging messages.
-
-.. clicmd:: debug ospf6 interface
-
-   Toggle OSPFv3 interface related debugging messages.
-
-.. clicmd:: debug ospf6 lsa
-
-   Toggle OSPFv3 Link State Advertisements debugging messages.
-
-.. clicmd:: debug ospf6 message
-
-   Toggle OSPFv3 message exchange debugging messages.
-
-.. clicmd:: debug ospf6 neighbor
-
-   Toggle OSPFv3 neighbor interaction debugging messages.
-
-.. clicmd:: debug ospf6 nssa
-
-   Toggle OSPFv3 Not So Stubby Area (NSSA) debugging messages.
-
-.. clicmd:: debug ospf6 route
-
-   Toggle OSPFv3 routes debugging messages.
-
-.. clicmd:: debug ospf6 spf
-
-   Toggle OSPFv3 Shortest Path calculation debugging messages.
-
-.. clicmd:: debug ospf6 zebra
-
-   Toggle OSPFv3 zebra interaction debugging messages.
-
 .. _ospf6-area:
 
 OSPF6 area
 ==========
 
-.. clicmd:: area A.B.C.D nssa
+.. clicmd:: area A.B.C.D range X:X::X:X/M [<advertise|not-advertise|cost (0-16777215)>]
 
-NSSA Support in OSPFv3
-=======================
+.. clicmd:: area (0-4294967295) range X:X::X:X/M [<advertise|not-advertise|cost (0-16777215)>]
 
-The configuration of NSSA areas in OSPFv3 is supported using the CLI command
-``area A.B.C.D nssa`` in ospf6 router configuration mode.
-The following functionalities are implemented as per RFC 3101:
+    Summarize a group of internal subnets into a single Inter-Area-Prefix LSA.
+    This command can only be used at the area boundary (ABR router).
 
-1. Advertising Type-7 LSA into NSSA area when external route is redistributed
-   into OSPFv3
-2. Processing Type-7 LSA received from neighbor and installing route in the
-   route table
-3. Support for NSSA ABR functionality which is generating Type-5 LSA when
-   backbone area is configured. Currently translation of Type-7 LSA to Type-5 LSA
-   is enabled by default.
-4. Support for NSSA Translator functionality when there are multiple NSSA ABR
-   in an area
+    By default, the metric of the summary route is calculated as the highest
+    metric among the summarized routes. The `cost` option, however, can be used
+    to set an explicit metric.
+
+    The `not-advertise` option, when present, prevents the summary route from
+    being advertised, effectively filtering the summarized routes.
+
+.. clicmd:: area A.B.C.D nssa [no-summary]
+
+.. clicmd:: area (0-4294967295) nssa [no-summary] [default-information-originate [metric-type (1-2)] [metric (0-16777214)]]
+
+   Configure the area to be a NSSA (Not-So-Stubby Area).
+
+   The following functionalities are implemented as per RFC 3101:
+
+   1. Advertising Type-7 LSA into NSSA area when external route is
+      redistributed into OSPFv3.
+   2. Processing Type-7 LSA received from neighbor and installing route in the
+      route table.
+   3. Support for NSSA ABR functionality which is generating Type-5 LSA when
+      backbone area is configured. Currently translation of Type-7 LSA to
+      Type-5 LSA is enabled by default.
+   4. Support for NSSA Translator functionality when there are multiple NSSA
+      ABR in an area.
+
+   An NSSA ABR can be configured with the `no-summary` option to prevent the
+   advertisement of summaries into the area. In that case, a single Type-3 LSA
+   containing a default route is originated into the NSSA.
+
+   NSSA ABRs and ASBRs can be configured with `default-information-originate`
+   option to originate a Type-7 default route into the NSSA area. In the case
+   of NSSA ASBRs, the origination of the default route is conditioned to the
+   existence of a default route in the RIB that wasn't learned via the OSPF
+   protocol.
+
+.. clicmd:: area A.B.C.D export-list NAME
+
+.. clicmd:: area (0-4294967295) export-list NAME
+
+   Filter Type-3 summary-LSAs announced to other areas originated from intra-
+   area paths from specified area.
+
+   .. code-block:: frr
+
+      router ospf6
+       area 0.0.0.10 export-list foo
+      !
+      ipv6 access-list foo permit 2001:db8:1000::/64
+      ipv6 access-list foo deny any
+
+   With example above any intra-area paths from area 0.0.0.10 and from range
+   2001:db8::/32 (for example 2001:db8:1::/64 and 2001:db8:2::/64) are announced
+   into other areas as Type-3 summary-LSA's, but any others (for example
+   2001:200::/48) aren't.
+
+   This command is only relevant if the router is an ABR for the specified
+   area.
+
+.. clicmd:: area A.B.C.D import-list NAME
+
+.. clicmd:: area (0-4294967295) import-list NAME
+
+   Same as export-list, but it applies to paths announced into specified area
+   as Type-3 summary-LSAs.
+
+.. clicmd:: area A.B.C.D filter-list prefix NAME in
+
+.. clicmd:: area A.B.C.D filter-list prefix NAME out
+
+.. clicmd:: area (0-4294967295) filter-list prefix NAME in
+
+.. clicmd:: area (0-4294967295) filter-list prefix NAME out
+
+   Filtering Type-3 summary-LSAs to/from area using prefix lists. This command
+   makes sense in ABR only.
 
 .. _ospf6-interface:
 
@@ -295,15 +299,69 @@ Usage of *ospfd6*'s route-map support.
 Redistribute routes to OSPF6
 ============================
 
-.. clicmd:: redistribute <babel|bgp|connected|isis|kernel|openfabric|ripng|sharp|static|table> [route-map WORD]
+.. clicmd:: redistribute <babel|bgp|connected|isis|kernel|openfabric|ripng|sharp|static|table> [metric-type (1-2)] [metric (0-16777214)] [route-map WORD]
 
-   Redistribute routes from other protocols into OSPFv3.
+   Redistribute routes of the specified protocol or kind into OSPFv3, with the
+   metric type and metric set if specified, filtering the routes using the
+   given route-map if specified.
 
 .. clicmd:: default-information originate [{always|metric (0-16777214)|metric-type (1-2)|route-map WORD}]
 
    The command injects default route in the connected areas. The always
    argument injects the default route regardless of it being present in the
    router. Metric values and route-map can also be specified optionally.
+
+Graceful Restart
+================
+
+.. clicmd:: graceful-restart [grace-period (1-1800)]
+
+
+   Configure Graceful Restart (RFC 5187) restarting support.
+   When enabled, the default grace period is 120 seconds.
+
+   To perform a graceful shutdown, the "graceful-restart prepare ipv6 ospf"
+   EXEC-level command needs to be issued before restarting the ospf6d daemon.
+
+.. clicmd:: graceful-restart helper enable [A.B.C.D]
+
+
+   Configure Graceful Restart (RFC 5187) helper support.
+   By default, helper support is disabled for all neighbours.
+   This config enables/disables helper support on this router
+   for all neighbours.
+   To enable/disable helper support for a specific
+   neighbour, the router-id (A.B.C.D) has to be specified.
+
+.. clicmd:: graceful-restart helper strict-lsa-checking
+
+
+   If 'strict-lsa-checking' is configured then the helper will
+   abort the Graceful Restart when a LSA change occurs which
+   affects the restarting router.
+   By default 'strict-lsa-checking' is enabled"
+
+.. clicmd:: graceful-restart helper supported-grace-time (10-1800)
+
+
+   Supports as HELPER for configured grace period.
+
+.. clicmd:: graceful-restart helper planned-only
+
+
+   It helps to support as HELPER only for planned
+   restarts. By default, it supports both planned and
+   unplanned outages.
+
+.. clicmd:: graceful-restart prepare ipv6 ospf
+
+
+   Initiate a graceful restart for all OSPFv3 instances configured with the
+   "graceful-restart" command. The ospf6d daemon should be restarted during
+   the instance-specific grace period, otherwise the graceful restart will fail.
+
+   This is an EXEC-level command.
+
 
 .. _showing-ospf6-information:
 
@@ -398,6 +456,73 @@ Showing OSPF6 information
    JSON object, with each router having "cost", "isLeafNode" and "children" as
    arguments.
 
+.. clicmd:: show ipv6 ospf6 graceful-restart helper [detail] [json]
+
+   This command shows the graceful-restart helper details including helper
+   configuration parameters.
+
+.. _ospf6-debugging:
+
+OSPFv3 Debugging
+================
+
+The following debug commands are supported:
+
+.. clicmd:: debug ospf6 abr
+
+   Toggle OSPFv3 ABR debugging messages.
+
+.. clicmd:: debug ospf6 asbr
+
+   Toggle OSPFv3 ASBR debugging messages.
+
+.. clicmd:: debug ospf6 border-routers
+
+   Toggle OSPFv3 border router debugging messages.
+
+.. clicmd:: debug ospf6 flooding
+
+   Toggle OSPFv3 flooding debugging messages.
+
+.. clicmd:: debug ospf6 interface
+
+   Toggle OSPFv3 interface related debugging messages.
+
+.. clicmd:: debug ospf6 lsa
+
+   Toggle OSPFv3 Link State Advertisements debugging messages.
+
+.. clicmd:: debug ospf6 lsa aggregation
+
+   Toggle OSPFv3 Link State Advertisements summarization debugging messages.
+
+.. clicmd:: debug ospf6 message
+
+   Toggle OSPFv3 message exchange debugging messages.
+
+.. clicmd:: debug ospf6 neighbor
+
+   Toggle OSPFv3 neighbor interaction debugging messages.
+
+.. clicmd:: debug ospf6 nssa
+
+   Toggle OSPFv3 Not So Stubby Area (NSSA) debugging messages.
+
+.. clicmd:: debug ospf6 route
+
+   Toggle OSPFv3 routes debugging messages.
+
+.. clicmd:: debug ospf6 spf
+
+   Toggle OSPFv3 Shortest Path calculation debugging messages.
+
+.. clicmd:: debug ospf6 zebra
+
+   Toggle OSPFv3 zebra interaction debugging messages.
+
+.. clicmd:: debug ospf6 graceful-restart
+
+   Toggle OSPFv3 graceful-restart helper debugging messages.
 
 Sample configuration
 ====================

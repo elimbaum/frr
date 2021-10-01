@@ -371,9 +371,6 @@ extern void _route_entry_dump(const char *func, union prefixconstptr pp,
 			      union prefixconstptr src_pp,
 			      const struct route_entry *re);
 
-extern void rib_lookup_and_dump(struct prefix_ipv4 *p, vrf_id_t vrf_id);
-extern void rib_lookup_and_pushup(struct prefix_ipv4 *p, vrf_id_t vrf_id);
-
 #define ZEBRA_RIB_LOOKUP_ERROR -1
 #define ZEBRA_RIB_FOUND_EXACT 0
 #define ZEBRA_RIB_FOUND_NOGATE 1
@@ -403,6 +400,11 @@ extern int rib_add(afi_t afi, safi_t safi, vrf_id_t vrf_id, int type,
 extern int rib_add_multipath(afi_t afi, safi_t safi, struct prefix *p,
 			     struct prefix_ipv6 *src_p, struct route_entry *re,
 			     struct nexthop_group *ng);
+/*
+ * -1 -> some sort of error
+ *  0 -> an add
+ *  1 -> an update
+ */
 extern int rib_add_multipath_nhe(afi_t afi, safi_t safi, struct prefix *p,
 				 struct prefix_ipv6 *src_p,
 				 struct route_entry *re,

@@ -867,7 +867,7 @@ void zsend_rule_notify_owner(const struct zebra_dplane_ctx *ctx,
 }
 
 void zsend_iptable_notify_owner(const struct zebra_dplane_ctx *ctx,
-				uint16_t note)
+				enum zapi_iptable_notify_owner note)
 {
 	struct listnode *node;
 	struct zserv *client;
@@ -901,7 +901,8 @@ void zsend_iptable_notify_owner(const struct zebra_dplane_ctx *ctx,
 	zserv_send_message(client, s);
 }
 
-void zsend_ipset_notify_owner(const struct zebra_dplane_ctx *ctx, uint16_t note)
+void zsend_ipset_notify_owner(const struct zebra_dplane_ctx *ctx,
+			      enum zapi_ipset_notify_owner note)
 {
 	struct listnode *node;
 	struct zserv *client;
@@ -936,7 +937,7 @@ void zsend_ipset_notify_owner(const struct zebra_dplane_ctx *ctx, uint16_t note)
 }
 
 void zsend_ipset_entry_notify_owner(const struct zebra_dplane_ctx *ctx,
-				    uint16_t note)
+				    enum zapi_ipset_entry_notify_owner note)
 {
 	struct listnode *node;
 	struct zserv *client;
@@ -996,7 +997,8 @@ void zsend_nhrp_neighbor_notify(int cmd, struct interface *ifp,
 			continue;
 
 		s = stream_new(ZEBRA_MAX_PACKET_SIZ);
-		zclient_neigh_ip_encode(s, cmd, &ip, link_layer_ipv4, ifp);
+		zclient_neigh_ip_encode(s, cmd, &ip, link_layer_ipv4, ifp,
+					ndm_state);
 		stream_putw_at(s, 0, stream_get_endp(s));
 		zserv_send_message(client, s);
 	}
@@ -1130,6 +1132,31 @@ static int zsend_table_manager_connect_response(struct zserv *client,
 	/* result */
 	stream_putc(s, result);
 
+	stream_putw_at(s, 0, stream_get_endp(s));
+
+	return zserv_send_message(client, s);
+}
+
+/* SRv6 locator add notification from zebra daemon. */
+int zsend_zebra_srv6_locator_add(struct zserv *client, struct srv6_locator *loc)
+{
+	struct stream *s = stream_new(ZEBRA_MAX_PACKET_SIZ);
+
+	zclient_create_header(s, ZEBRA_SRV6_LOCATOR_ADD, VRF_DEFAULT);
+	zapi_srv6_locator_encode(s, loc);
+	stream_putw_at(s, 0, stream_get_endp(s));
+
+	return zserv_send_message(client, s);
+}
+
+/* SRv6 locator delete notification from zebra daemon. */
+int zsend_zebra_srv6_locator_delete(struct zserv *client,
+				    struct srv6_locator *loc)
+{
+	struct stream *s = stream_new(ZEBRA_MAX_PACKET_SIZ);
+
+	zclient_create_header(s, ZEBRA_SRV6_LOCATOR_DELETE, VRF_DEFAULT);
+	zapi_srv6_locator_encode(s, loc);
 	stream_putw_at(s, 0, stream_get_endp(s));
 
 	return zserv_send_message(client, s);
@@ -1609,7 +1636,8 @@ static struct nexthop *nexthop_from_zapi(const struct zapi_nexthop *api_nh,
 			zlog_debug("%s: nh blackhole %d",
 				   __func__, api_nh->bh_type);
 
-		nexthop = nexthop_from_blackhole(api_nh->bh_type);
+		nexthop =
+			nexthop_from_blackhole(api_nh->bh_type, api_nh->vrf_id);
 		break;
 	}
 
@@ -1937,6 +1965,11 @@ static void zread_nhg_add(ZAPI_HANDLER_ARGS)
 
 		flog_warn(EC_ZEBRA_NEXTHOP_CREATION_FAILED,
 			  "%s: Nexthop Group Creation failed", __func__);
+
+		/* Free any local allocations */
+		nexthop_group_delete(&nhg);
+		zebra_nhg_backup_free(&bnhg);
+
 		return;
 	}
 
@@ -2110,6 +2143,15 @@ static void zread_route_add(ZAPI_HANDLER_ARGS)
 	ret = rib_add_multipath_nhe(afi, api.safi, &api.prefix, src_p,
 				    re, &nhe);
 
+	/*
+	 * rib_add_multipath_nhe only fails in a couple spots
+	 * and in those spots we have not freed memory
+	 */
+	if (ret == -1) {
+		client->error_cnt++;
+		XFREE(MTYPE_RE, re);
+	}
+
 	/* At this point, these allocations are not needed: 're' has been
 	 * retained or freed, and if 're' still exists, it is using
 	 * a reference to a shared group object.
@@ -2121,15 +2163,15 @@ static void zread_route_add(ZAPI_HANDLER_ARGS)
 	/* Stats */
 	switch (api.prefix.family) {
 	case AF_INET:
-		if (ret > 0)
+		if (ret == 0)
 			client->v4_route_add_cnt++;
-		else if (ret < 0)
+		else if (ret == 1)
 			client->v4_route_upd8_cnt++;
 		break;
 	case AF_INET6:
-		if (ret > 0)
+		if (ret == 0)
 			client->v6_route_add_cnt++;
-		else if (ret < 0)
+		else if (ret == 1)
 			client->v6_route_upd8_cnt++;
 		break;
 	}
@@ -2205,8 +2247,8 @@ stream_failure:
 static void zread_router_id_add(ZAPI_HANDLER_ARGS)
 {
 	afi_t afi;
-
 	struct prefix p;
+	struct prefix zero;
 
 	STREAM_GETW(msg, afi);
 
@@ -2221,6 +2263,18 @@ static void zread_router_id_add(ZAPI_HANDLER_ARGS)
 	vrf_bitmap_set(client->ridinfo[afi], zvrf_id(zvrf));
 
 	router_id_get(afi, &p, zvrf);
+
+	/*
+	 * If we have not officially setup a router-id let's not
+	 * tell the upper level protocol about it yet.
+	 */
+	memset(&zero, 0, sizeof(zero));
+	if ((p.family == AF_INET && p.u.prefix4.s_addr == INADDR_ANY)
+	    || (p.family == AF_INET6
+		&& memcmp(&p.u.prefix6, &zero.u.prefix6,
+			  sizeof(struct in6_addr))
+			   == 0))
+		return;
 
 	zsend_router_id_update(client, afi, &p, zvrf_id(zvrf));
 
