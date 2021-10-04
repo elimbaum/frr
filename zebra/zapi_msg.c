@@ -3226,7 +3226,6 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 		strlcpy(zpr.ifname, ifname, sizeof(zpr.ifname));
 		strlcpy(zpr.rule.ifname, ifname, sizeof(zpr.rule.ifname));
 
-		
         if (!is_default_prefix(&zpr.rule.filter.src_ip))
 			zpr.rule.filter.filter_bm |= PBR_FILTER_SRC_IP;
 
@@ -3264,6 +3263,7 @@ static inline void zread_rule(ZAPI_HANDLER_ARGS)
 				zpr.rule.filter.src_ip.family);
 			return;
 		}
+		
 		if (!(zpr.rule.filter.dst_ip.family == AF_INET
 		      || zpr.rule.filter.dst_ip.family == AF_INET6)) {
 			zlog_warn(

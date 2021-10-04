@@ -100,7 +100,7 @@ struct pbr_map_sequence {
 	 */
 	struct prefix *src;
 	struct prefix *dst;
-	uint8_t  dsfield;
+	uint8_t dsfield;
 	uint32_t mark;
 
 	/*

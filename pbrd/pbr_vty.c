@@ -412,8 +412,9 @@ DEFPY(pbr_map_match_dscp, pbr_map_match_dscp_cmd,
 		/* Set the DSCP bits of the DSField */
 		pbrms->dsfield =
 			(pbrms->dsfield & ~PBR_DSFIELD_DSCP) | (rawDscp << 2);
-	} else
+	} else {
 		pbrms->dsfield &= ~PBR_DSFIELD_DSCP;
+	}
 
 	pbr_map_check(pbrms, true);
 
@@ -488,8 +489,9 @@ DEFPY(pbr_map_match_ecn, pbr_map_match_ecn_cmd,
 
 		/* Set the ECN bits of the DSField */
 		pbrms->dsfield = (pbrms->dsfield & ~PBR_DSFIELD_ECN) | ecn;
-	} else
+	} else {
 		pbrms->dsfield &= ~PBR_DSFIELD_ECN;
+	}
 
 	pbr_map_check(pbrms, true);
 
@@ -616,7 +618,7 @@ DEFPY(no_pbr_map_nexthop_group, no_pbr_map_nexthop_group_cmd,
 }
 
 DEFPY(pbr_map_nexthop, pbr_map_nexthop_cmd,
-      "set nexthop \
+      "set nexthop\
         <\
 			<A.B.C.D|X:X::X:X>$addr [INTERFACE$intf]\
 			|INTERFACE$intf\
@@ -962,10 +964,10 @@ static void vty_show_pbrms(struct vty *vty,
 	if (pbrms->action_src)
 		vty_out(vty, "        Set SRC IP %pFX\n", pbrms->action_src);
 
-	if (pbrms->action_dst_port != PBR_UNDEFINED_VALUE)
+	if (pbrms->action_dst_port)
 		vty_out(vty, "        Set Dst port %u\n",
 			pbrms->action_dst_port);
-	if (pbrms->action_src_port != PBR_UNDEFINED_VALUE)
+	if (pbrms->action_src_port)
 		vty_out(vty, "        Set Src port %u\n",
 			pbrms->action_src_port);
 
@@ -1392,9 +1394,9 @@ static int pbr_vty_map_config_write_sequence(struct vty *vty,
 		vty_out(vty, " set ecn %u\n",
 			pbrms->action_dsfield & PBR_DSFIELD_ECN);
 
-	if (pbrms->action_dst_port != PBR_UNDEFINED_VALUE)
+	if (pbrms->action_dst_port)
 		vty_out(vty, " set dst-port %d\n", pbrms->action_dst_port);
-	if (pbrms->action_src_port != PBR_UNDEFINED_VALUE)
+	if (pbrms->action_src_port)
 		vty_out(vty, " set src-port %d\n", pbrms->action_src_port);
 
 	if (pbrms->vrf_unchanged)

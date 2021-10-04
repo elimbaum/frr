@@ -2805,6 +2805,7 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 					struct zebra_pbr_rule *rule)
 {
 	dplane_rule->priority = rule->rule.priority;
+	dplane_rule->table = rule->rule.action.table;
 
 	/* copy filter clause */
 	dplane_rule->filter_bm = rule->rule.filter.filter_bm;
@@ -2823,8 +2824,6 @@ static void dplane_ctx_rule_init_single(struct dplane_ctx_rule *dplane_rule,
 	dplane_rule->action_src_port   = rule->rule.action.src_port;
 	dplane_rule->action_dst_port   = rule->rule.action.dst_port;
 	dplane_rule->action_dsfield        = rule->rule.action.dsfield;
-
-	dplane_rule->table = rule->rule.action.table;
 }
 
 /**
@@ -4981,10 +4980,12 @@ int dplane_provider_work_ready(void)
 	 * available.
 	 */
 
-	if (zdplane_info.dg_run)
+	if (zdplane_info.dg_run) {
 		thread_add_event(zdplane_info.dg_master,
 				 dplane_thread_loop, NULL, 0,
 				 &zdplane_info.dg_t_update);
+	}
+	
 	return AOK;
 }
 

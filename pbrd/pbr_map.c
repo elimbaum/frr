@@ -594,8 +594,8 @@ struct pbr_map_sequence *pbrms_get(const char *name, uint32_t seqno)
 		pbrms->src_prt = 0;
 		pbrms->dst_prt = 0;
 
-		pbrms->action_src_port = PBR_UNDEFINED_VALUE;
-		pbrms->action_dst_port = PBR_UNDEFINED_VALUE;
+		pbrms->action_src_port = 0;
+		pbrms->action_dst_port = 0;
 
 		pbrms->reason =
 			PBR_MAP_INVALID_EMPTY |
@@ -660,18 +660,18 @@ pbr_map_sequence_check_nexthops_valid(struct pbr_map_sequence *pbrms)
 
 static void pbr_map_sequence_check_not_empty(struct pbr_map_sequence *pbrms)
 {
-	if (!pbrms->src                   &&
-	    !pbrms->dst                   &&
-	    !pbrms->action_src            &&
-	    !pbrms->action_dst            &&
+	if (!pbrms->src             &&
+	    !pbrms->dst             &&
+	    !pbrms->action_src      &&
+	    !pbrms->action_dst      &&
 	    !pbrms->dsfield         &&
-	    !pbrms->action_dsfield        &&
-	    !pbrms->mark                  &&
-	    !pbrms->src_prt				  &&
-		!pbrms->dst_prt				  &&
-	    !pbrms->ip_proto			  &&
-	    pbrms->action_src_port == PBR_UNDEFINED_VALUE &&
-	    pbrms->action_dst_port == PBR_UNDEFINED_VALUE)
+	    !pbrms->action_dsfield  &&
+	    !pbrms->mark            &&
+	    !pbrms->src_prt			&&
+		!pbrms->dst_prt			&&
+	    !pbrms->ip_proto		&&
+	    !pbrms->action_src_port &&
+	    !pbrms->action_dst_port)
 		pbrms->reason |= PBR_MAP_INVALID_EMPTY;
 }
 
